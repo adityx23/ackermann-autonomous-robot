@@ -6,10 +6,10 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# Virtual env
+# Virtual environment
 .venv/
 
-# Logs and data
+# Logs and generated data
 logs/
 data/
 *.log
@@ -18,7 +18,7 @@ data/
 *.db
 *.sqlite
 
-# Camera/lidar/map outputs
+# Sensor/map outputs
 *.png
 *.jpg
 *.jpeg
@@ -29,6 +29,10 @@ data/
 *.ply
 *.pcd
 *.stl
+
+# Secrets/local config
+.env
+config/local.yaml
 
 # OS/editor
 .DS_Store
