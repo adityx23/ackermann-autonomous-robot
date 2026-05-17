@@ -1,13 +1,19 @@
+VENV := .venv/bin
+PYTHON := $(VENV)/python
+PYTEST := $(VENV)/pytest
+RUFF := $(VENV)/ruff
+BLACK := $(VENV)/black
+
 .PHONY: test lint format check tree env
 
 test:
-	pytest -q
+	$(PYTEST) -q
 
 lint:
-	ruff check src tests scripts
+	$(RUFF) check src tests scripts
 
 format:
-	black src tests scripts
+	$(BLACK) src tests scripts
 
 check: lint test
 
@@ -15,4 +21,4 @@ tree:
 	tree -L 4 -I ".venv|__pycache__|.git|logs|data"
 
 env:
-	python scripts/check_env.py
+	$(PYTHON) scripts/check_env.py
