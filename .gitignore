@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual env
+.venv/
+
+# Logs and data
+logs/
+data/
+*.log
+*.csv
+*.jsonl
+*.db
+*.sqlite
+
+# Camera/lidar/map outputs
+*.png
+*.jpg
+*.jpeg
+*.mp4
+*.avi
+*.npy
+*.npz
+*.ply
+*.pcd
+*.stl
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,16 @@
+[project]
+name = "ackermann-robot"
+version = "0.1.0"
+description = "Native non-ROS2 Ackermann robot stack for Raspberry Pi 5 and Jetson offload"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.black]
+line-length = 100

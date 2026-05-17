@@ -1,0 +1,13 @@
+safety:
+  require_manual_enable: true
+  command_timeout_s: 0.5
+  jetson_timeout_s: 0.5
+
+  stop_on_jetson_disconnect: true
+  stop_on_c30d_failure: true
+  stop_on_lidar_failure: false
+  stop_on_imu_failure: false
+  stop_on_camera_failure: false
+
+  default_safe_speed_mps: 0.0
+  default_safe_steering_deg: 0.0

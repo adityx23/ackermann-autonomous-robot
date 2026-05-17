@@ -1,0 +1,11 @@
+network:
+  jetson:
+    hostname: jetson.local
+    ip: null
+    command_port: 5555
+    telemetry_port: 5556
+    timeout_s: 0.5
+
+  dashboard:
+    host: 0.0.0.0
+    port: 8000

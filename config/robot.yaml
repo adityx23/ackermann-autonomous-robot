@@ -1,0 +1,18 @@
+robot:
+  name: ackermann_pi5_robot
+  mode: development
+
+  geometry:
+    wheelbase_m: 0.30
+    track_width_m: 0.20
+    wheel_radius_m: null
+
+  limits:
+    max_speed_mps: 0.5
+    max_reverse_speed_mps: 0.2
+    max_steering_deg: 25.0
+    max_accel_mps2: 0.5
+
+  control:
+    control_rate_hz: 30
+    dry_run_default: true

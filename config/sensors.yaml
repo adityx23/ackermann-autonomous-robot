@@ -1,0 +1,24 @@
+sensors:
+  c30d:
+    interface: serial
+    port: /dev/ttyUSB0
+    baudrate: 115200
+    timeout_s: 0.1
+
+  imu:
+    model: ICM-20948
+    interface: i2c
+    i2c_bus: 1
+    address: null
+
+  lidar:
+    model: RPLIDAR C1
+    interface: usb_serial
+    port: /dev/ttyUSB1
+    baudrate: 460800
+
+  camera:
+    model: OAK-D Lite
+    interface: usb
+    fps: 30
+    resolution: 720p
