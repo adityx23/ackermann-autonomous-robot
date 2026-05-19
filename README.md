@@ -73,6 +73,14 @@ Inspect a passive C30D capture without assigning protocol field meanings:
 
     python scripts/analyze_c30d_capture.py data/c30d_captures/c30d_capture_YYYYMMDD_HHMMSS.bin
 
+Analyze the newest saved C30D capture:
+
+    python scripts/analyze_c30d_capture.py --latest
+
+The analyzer works only from saved `.bin` files. It reports byte counts, marker counts,
+candidate frames between `0x7B` and `0x7D`, and frame length distribution without assigning
+protocol field meanings.
+
 ## Logs
 
 Use `setup_logging()` from `ackermann_robot.utils.logging_utils` to create a timestamped

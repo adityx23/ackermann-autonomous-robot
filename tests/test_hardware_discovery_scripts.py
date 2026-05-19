@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -53,6 +54,46 @@ def test_analyze_c30d_capture_helpers_do_not_assign_protocol_meanings():
         bytes([0x7B, 0x01, 0x02, 0x7D]),
         bytes([0x7B, 0x03, 0x7D]),
     ]
+
+
+def test_analyze_c30d_capture_frame_length_distribution():
+    module = load_script("analyze_c30d_capture.py")
+    frames = [
+        bytes([0x7B, 0x01, 0x7D]),
+        bytes([0x7B, 0x02, 0x03, 0x7D]),
+        bytes([0x7B, 0x04, 0x7D]),
+    ]
+
+    distribution = module.frame_length_distribution(frames)
+
+    assert distribution == {3: 2, 4: 1}
+    assert module.format_length_distribution(distribution) == "3:2, 4:1"
+
+
+def test_analyze_c30d_capture_latest_selects_newest_bin(tmp_path):
+    module = load_script("analyze_c30d_capture.py")
+    older = tmp_path / "older.bin"
+    newer = tmp_path / "newer.bin"
+    ignored = tmp_path / "newer.txt"
+    older.write_bytes(b"old")
+    newer.write_bytes(b"new")
+    ignored.write_text("ignored", encoding="utf-8")
+
+    os.utime(older, (1_000_000, 1_000_000))
+    os.utime(newer, (2_000_000, 2_000_000))
+
+    assert module.newest_capture(tmp_path) == newer
+
+
+def test_analyze_c30d_capture_resolve_requires_path_or_latest():
+    module = load_script("analyze_c30d_capture.py")
+
+    try:
+        module.resolve_capture_path(None, latest=False)
+    except ValueError as exc:
+        assert "capture path" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
 
 
 def test_oak_camera_feature_formatter_handles_plain_objects():
