@@ -35,6 +35,14 @@ def test_supervisor_uses_mock_driver_without_serial_or_sensor_access():
     assert driver.read_status().connected
 
 
+def test_supervisor_loads_current_config_with_c30d_imu():
+    driver = MockC30DDriver()
+    supervisor = RobotSupervisor(config_dir="config", driver=driver, clock=lambda: 2.0)
+
+    assert supervisor.driver is driver
+    assert driver.commands == []
+
+
 def test_supervisor_filters_enabled_command_through_limits():
     driver = MockC30DDriver()
     supervisor = RobotSupervisor(driver=driver, clock=lambda: 1.0)

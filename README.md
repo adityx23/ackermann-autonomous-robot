@@ -53,6 +53,26 @@ Runtime configuration lives in `config/*.yaml`. The current mock-only stack read
 geometry and limits, safety timeouts, sensor connection settings, and network endpoints
 from those files before any real hardware drivers are added.
 
+## Hardware Discovery
+
+These scripts are manual hardware discovery checks. They do not move motors or steering.
+
+List and briefly connect to an OAK-D Lite without starting a long stream:
+
+    python scripts/test_oak_detect.py
+
+Open and close the RPLIDAR C1 serial port:
+
+    python scripts/test_rplidar_port.py --port /dev/rplidar --baud 460800
+
+Capture passive C30D bytes without writing anything to the controller:
+
+    python scripts/capture_c30d_passive.py --port /dev/c30d --baud 115200 --duration 5
+
+Inspect a passive C30D capture without assigning protocol field meanings:
+
+    python scripts/analyze_c30d_capture.py data/c30d_captures/c30d_capture_YYYYMMDD_HHMMSS.bin
+
 ## Logs
 
 Use `setup_logging()` from `ackermann_robot.utils.logging_utils` to create a timestamped

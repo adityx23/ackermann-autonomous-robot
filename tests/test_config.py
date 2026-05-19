@@ -44,6 +44,42 @@ def test_missing_required_value_raises_clear_error(tmp_path):
         load_robot_config(tmp_path)
 
 
+def test_i2c_imu_config_loads_with_i2c_bus(tmp_path):
+    (tmp_path / "sensors.yaml").write_text(
+        """
+sensors:
+  c30d:
+    interface: serial
+    port: /dev/mock-c30d
+    baudrate: 115200
+    timeout_s: 0.1
+  imu:
+    model: ICM-20948
+    interface: i2c
+    i2c_bus: 1
+    address: 105
+  lidar:
+    model: RPLIDAR C1
+    interface: usb_serial
+    port: /dev/mock-lidar
+    baudrate: 460800
+  camera:
+    model: OAK-D Lite
+    interface: usb
+    fps: 30
+    resolution: 720p
+""",
+        encoding="utf-8",
+    )
+
+    config = load_sensor_config(tmp_path)
+
+    assert config.imu.interface == "i2c"
+    assert config.imu.i2c_bus == 1
+    assert config.imu.address == 105
+    assert config.imu.source is None
+
+
 def test_i2c_imu_config_requires_i2c_bus(tmp_path):
     (tmp_path / "sensors.yaml").write_text(
         """

@@ -1,0 +1,66 @@
+[1mdiff --git a/tests/test_config.py b/tests/test_config.py[m
+[1mindex 9c65684..95f52e3 100644[m
+[1m--- a/tests/test_config.py[m
+[1m+++ b/tests/test_config.py[m
+[36m@@ -44,6 +44,42 @@[m [mdef test_missing_required_value_raises_clear_error(tmp_path):[m
+         load_robot_config(tmp_path)[m
+ [m
+ [m
+[32m+[m[32mdef test_i2c_imu_config_loads_with_i2c_bus(tmp_path):[m
+[32m+[m[32m    (tmp_path / "sensors.yaml").write_text([m
+[32m+[m[32m        """[m
+[32m+[m[32msensors:[m
+[32m+[m[32m  c30d:[m
+[32m+[m[32m    interface: serial[m
+[32m+[m[32m    port: /dev/mock-c30d[m
+[32m+[m[32m    baudrate: 115200[m
+[32m+[m[32m    timeout_s: 0.1[m
+[32m+[m[32m  imu:[m
+[32m+[m[32m    model: ICM-20948[m
+[32m+[m[32m    interface: i2c[m
+[32m+[m[32m    i2c_bus: 1[m
+[32m+[m[32m    address: 105[m
+[32m+[m[32m  lidar:[m
+[32m+[m[32m    model: RPLIDAR C1[m
+[32m+[m[32m    interface: usb_serial[m
+[32m+[m[32m    port: /dev/mock-lidar[m
+[32m+[m[32m    baudrate: 460800[m
+[32m+[m[32m  camera:[m
+[32m+[m[32m    model: OAK-D Lite[m
+[32m+[m[32m    interface: usb[m
+[32m+[m[32m    fps: 30[m
+[32m+[m[32m    resolution: 720p[m
+[32m+[m[32m""",[m
+[32m+[m[32m        encoding="utf-8",[m
+[32m+[m[32m    )[m
+[32m+[m
+[32m+[m[32m    config = load_sensor_config(tmp_path)[m
+[32m+[m
+[32m+[m[32m    assert config.imu.interface == "i2c"[m
+[32m+[m[32m    assert config.imu.i2c_bus == 1[m
+[32m+[m[32m    assert config.imu.address == 105[m
+[32m+[m[32m    assert config.imu.source is None[m
+[32m+[m
+[32m+[m
+ def test_i2c_imu_config_requires_i2c_bus(tmp_path):[m
+     (tmp_path / "sensors.yaml").write_text([m
+         """[m
+[1mdiff --git a/tests/test_supervisor.py b/tests/test_supervisor.py[m
+[1mindex de521de..5fcd21c 100644[m
+[1m--- a/tests/test_supervisor.py[m
+[1m+++ b/tests/test_supervisor.py[m
+[36m@@ -35,6 +35,14 @@[m [mdef test_supervisor_uses_mock_driver_without_serial_or_sensor_access():[m
+     assert driver.read_status().connected[m
+ [m
+ [m
+[32m+[m[32mdef test_supervisor_loads_current_config_with_c30d_imu():[m
+[32m+[m[32m    driver = MockC30DDriver()[m
+[32m+[m[32m    supervisor = RobotSupervisor(config_dir="config", driver=driver, clock=lambda: 2.0)[m
+[32m+[m
+[32m+[m[32m    assert supervisor.driver is driver[m
+[32m+[m[32m    assert driver.commands == [][m
+[32m+[m
+[32m+[m
+ def test_supervisor_filters_enabled_command_through_limits():[m
+     driver = MockC30DDriver()[m
+     supervisor = RobotSupervisor(driver=driver, clock=lambda: 1.0)[m
