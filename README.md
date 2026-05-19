@@ -27,6 +27,14 @@ Run tests:
 
     pytest -q
 
+Run the dry-run supervisor:
+
+    python scripts/run_dry_supervisor.py
+
+The dry supervisor runs a bounded mock-only loop by default. It creates `MockC30DDriver`,
+does not open serial ports, does not access OAK-D, RPLIDAR, or IMU hardware, and records
+only neutral mock drive commands unless a test injects a different command.
+
 Run lint:
 
     ruff check src tests scripts

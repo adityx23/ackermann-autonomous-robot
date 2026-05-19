@@ -55,8 +55,9 @@ class C30DConfig:
 class ImuConfig:
     model: str
     interface: str
-    i2c_bus: int
+    i2c_bus: int | None
     address: int | None
+    source: str | None
 
 
 @dataclass(frozen=True)
@@ -165,12 +166,7 @@ def load_sensor_config(config_dir: str | Path = "config") -> SensorConfig:
             baudrate=_required(data, "c30d.baudrate", int),
             timeout_s=_required(data, "c30d.timeout_s", float),
         ),
-        imu=ImuConfig(
-            model=_required(data, "imu.model", str),
-            interface=_required(data, "imu.interface", str),
-            i2c_bus=_required(data, "imu.i2c_bus", int),
-            address=_optional(data, "imu.address", int),
-        ),
+        imu=_load_imu_config(data),
         lidar=LidarConfig(
             model=_required(data, "lidar.model", str),
             interface=_required(data, "lidar.interface", str),
@@ -184,6 +180,31 @@ def load_sensor_config(config_dir: str | Path = "config") -> SensorConfig:
             resolution=_required(data, "camera.resolution", str),
         ),
     )
+
+
+def _load_imu_config(data: dict[str, Any]) -> ImuConfig:
+    model = _required(data, "imu.model", str)
+    interface = _required(data, "imu.interface", str)
+
+    if interface == "i2c":
+        return ImuConfig(
+            model=model,
+            interface=interface,
+            i2c_bus=_required(data, "imu.i2c_bus", int),
+            address=_optional(data, "imu.address", int),
+            source=None,
+        )
+
+    if interface == "c30d":
+        return ImuConfig(
+            model=model,
+            interface=interface,
+            i2c_bus=None,
+            address=None,
+            source=_required(data, "imu.source", str),
+        )
+
+    raise ConfigError(f"unsupported imu.interface: {interface}")
 
 
 def load_network_config(config_dir: str | Path = "config") -> NetworkConfig:

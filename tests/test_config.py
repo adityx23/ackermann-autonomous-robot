@@ -3,7 +3,12 @@ from __future__ import annotations
 import pytest
 
 from ackermann_robot.control.safety import SafetyConfig
-from ackermann_robot.utils.config import ConfigError, load_config, load_robot_config
+from ackermann_robot.utils.config import (
+    ConfigError,
+    load_config,
+    load_robot_config,
+    load_sensor_config,
+)
 
 
 def test_load_config_reads_all_yaml_files(tmp_path):
@@ -37,6 +42,100 @@ def test_missing_required_value_raises_clear_error(tmp_path):
 
     with pytest.raises(ConfigError, match="missing required config value: mode"):
         load_robot_config(tmp_path)
+
+
+def test_i2c_imu_config_requires_i2c_bus(tmp_path):
+    (tmp_path / "sensors.yaml").write_text(
+        """
+sensors:
+  c30d:
+    interface: serial
+    port: /dev/mock-c30d
+    baudrate: 115200
+    timeout_s: 0.1
+  imu:
+    model: ICM-20948
+    interface: i2c
+  lidar:
+    model: RPLIDAR C1
+    interface: usb_serial
+    port: /dev/mock-lidar
+    baudrate: 460800
+  camera:
+    model: OAK-D Lite
+    interface: usb
+    fps: 30
+    resolution: 720p
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="missing required config value: imu.i2c_bus"):
+        load_sensor_config(tmp_path)
+
+
+def test_c30d_imu_config_loads_without_i2c_bus(tmp_path):
+    (tmp_path / "sensors.yaml").write_text(
+        """
+sensors:
+  c30d:
+    interface: serial
+    port: /dev/mock-c30d
+    baudrate: 115200
+    timeout_s: 0.1
+  imu:
+    model: C30D onboard IMU
+    interface: c30d
+    source: c30d_feedback
+  lidar:
+    model: RPLIDAR C1
+    interface: usb_serial
+    port: /dev/mock-lidar
+    baudrate: 460800
+  camera:
+    model: OAK-D Lite
+    interface: usb
+    fps: 30
+    resolution: 720p
+""",
+        encoding="utf-8",
+    )
+
+    config = load_sensor_config(tmp_path)
+
+    assert config.imu.interface == "c30d"
+    assert config.imu.source == "c30d_feedback"
+    assert config.imu.i2c_bus is None
+
+
+def test_c30d_imu_config_requires_source(tmp_path):
+    (tmp_path / "sensors.yaml").write_text(
+        """
+sensors:
+  c30d:
+    interface: serial
+    port: /dev/mock-c30d
+    baudrate: 115200
+    timeout_s: 0.1
+  imu:
+    model: C30D onboard IMU
+    interface: c30d
+  lidar:
+    model: RPLIDAR C1
+    interface: usb_serial
+    port: /dev/mock-lidar
+    baudrate: 460800
+  camera:
+    model: OAK-D Lite
+    interface: usb
+    fps: 30
+    resolution: 720p
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="missing required config value: imu.source"):
+        load_sensor_config(tmp_path)
 
 
 def write_config_files(config_dir):
