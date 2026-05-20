@@ -72,13 +72,19 @@ Capture one OAK-D Lite RGB frame plus a raw depth frame when stereo depth is ava
 The OAK capture saves files under `data/oak_tests/`. RGB is saved as `.png`; depth is
 saved as a raw NumPy `.npy` array in millimeters for later processing.
 
-Capture a short finite RPLIDAR C1 scan sample:
+Capture a short finite RPLIDAR C1 scan sample with the SLAMTEC SDK backend:
 
-    python scripts/rplidar_scan_sample.py --port /dev/rplidar --baud 460800 --duration 5
+    python scripts/rplidar_scan_sample.py --backend sdk --port /dev/rplidar --baud 460800 --duration 5
+
+Capture with the Python wrapper backend for comparison:
+
+    python scripts/rplidar_scan_sample.py --backend pyrplidar --port /dev/rplidar --baud 460800 --duration 5
 
 RPLIDAR samples are saved as CSV files under `data/rplidar_tests/` with timestamp,
 angle, distance, and quality columns. These raw sensor files will feed the custom
-SLAM pipeline we build later.
+SLAM pipeline we build later. The SDK backend uses
+`external/rplidar_sdk/output/Linux/Release/ultra_simple` for a bounded subprocess run
+and saves raw stdout beside the CSV when parsing is incomplete.
 
 Capture passive C30D bytes without writing anything to the controller:
 

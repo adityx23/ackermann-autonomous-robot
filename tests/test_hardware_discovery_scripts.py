@@ -121,6 +121,7 @@ def test_rplidar_scan_parser_defaults_do_not_open_port():
 
     assert args.port == "/dev/rplidar"
     assert args.baud == 460800
+    assert args.backend == "sdk"
     assert args.duration == 5.0
     assert args.output is None
 
@@ -129,13 +130,27 @@ def test_rplidar_scan_parser_accepts_overrides():
     module = load_script("rplidar_scan_sample.py")
 
     args = module.build_parser().parse_args(
-        ["--port", "/tmp/lidar", "--baud", "115200", "--duration", "1.5", "--output", "scan.csv"]
+        [
+            "--backend",
+            "pyrplidar",
+            "--port",
+            "/tmp/lidar",
+            "--baud",
+            "115200",
+            "--duration",
+            "1.5",
+            "--output",
+            "scan.csv",
+            "--verbose",
+        ]
     )
 
+    assert args.backend == "pyrplidar"
     assert args.port == "/tmp/lidar"
     assert args.baud == 115200
     assert args.duration == 1.5
     assert args.output == Path("scan.csv")
+    assert args.verbose is True
 
 
 def test_rplidar_scan_default_output_path():
@@ -146,11 +161,49 @@ def test_rplidar_scan_default_output_path():
     assert output == Path("data/rplidar_tests/rplidar_scan_20260520_080910.csv")
 
 
+def test_rplidar_scan_raw_log_path():
+    module = load_script("rplidar_scan_sample.py")
+
+    output = module.raw_log_path_for(Path("data/rplidar_tests/rplidar_scan_20260520_080910.csv"))
+
+    assert output == Path("data/rplidar_tests/rplidar_scan_20260520_080910.raw.log")
+
+
+def test_rplidar_scan_parses_sdk_output_lines():
+    module = load_script("rplidar_scan_sample.py")
+    stdout = "\n".join(
+        [
+            "Ultra simple LIDAR data grabber for SLAMTEC LIDAR.",
+            "S  theta: 012.50 Dist: 00123.25 Q: 47 ",
+            "   theta: 359.75 Dist: 04567.00 Q: 12 ",
+        ]
+    )
+
+    points, unparsed = module.parse_sdk_output(stdout, timestamp_s=42.0)
+
+    assert unparsed == []
+    assert points == [
+        module.ScanPoint(timestamp_s=42.0, angle_deg=12.5, distance_mm=123.25, quality=47),
+        module.ScanPoint(timestamp_s=42.0, angle_deg=359.75, distance_mm=4567.0, quality=12),
+    ]
+
+
+def test_rplidar_scan_reports_unparsed_sdk_scan_like_lines():
+    module = load_script("rplidar_scan_sample.py")
+
+    points, unparsed = module.parse_sdk_output("theta: bad Dist: 1 Q: 2", timestamp_s=42.0)
+
+    assert points == []
+    assert unparsed == ["theta: bad Dist: 1 Q: 2"]
+
+
 def test_rplidar_scan_csv_row_formats_optional_quality():
     module = load_script("rplidar_scan_sample.py")
 
     with_quality = module.csv_row(
-        module.ScanPoint(timestamp_s=1.23456789, angle_deg=45.6789, distance_mm=1234.5678, quality=12)
+        module.ScanPoint(
+            timestamp_s=1.23456789, angle_deg=45.6789, distance_mm=1234.5678, quality=12
+        )
     )
     without_quality = module.csv_row(
         module.ScanPoint(timestamp_s=1.2, angle_deg=2.0, distance_mm=3.0, quality=None)
