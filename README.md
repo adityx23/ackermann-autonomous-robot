@@ -86,6 +86,14 @@ SLAM pipeline we build later. The SDK backend uses
 `external/rplidar_sdk/output/Linux/Release/ultra_simple` for a bounded subprocess run
 and saves raw stdout beside the CSV when parsing is incomplete.
 
+Plot a recorded RPLIDAR scan without touching hardware:
+
+    python scripts/plot_lidar_scan.py data/rplidar_tests/rplidar_scan_YYYYMMDD_HHMMSS.csv
+
+The first SLAM foundation lives in `ackermann_robot.slam`. It provides reusable recorded
+scan dataclasses, a CSV loader for RPLIDAR captures, and a basic metric occupancy grid for
+future CKF/PF state estimation and mapping work.
+
 Capture passive C30D bytes without writing anything to the controller:
 
     python scripts/capture_c30d_passive.py --port /dev/c30d --baud 115200 --duration 5
