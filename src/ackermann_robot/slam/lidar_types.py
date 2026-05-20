@@ -10,6 +10,7 @@ class LidarPoint:
     angle_deg: float
     distance_mm: float
     quality: int | None = None
+    scan_id: int | None = None
 
     def is_valid(self) -> bool:
         return (
@@ -36,3 +37,11 @@ class LidarScan:
 
     def to_xy_m(self) -> list[tuple[float, float]]:
         return [point.to_xy_m() for point in self.valid_points()]
+
+
+@dataclass(frozen=True)
+class LidarScanSequence:
+    scans: list[LidarScan]
+
+    def total_points(self) -> int:
+        return sum(len(scan.points) for scan in self.scans)

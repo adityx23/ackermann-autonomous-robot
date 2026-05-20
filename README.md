@@ -90,9 +90,25 @@ Plot a recorded RPLIDAR scan without touching hardware:
 
     python scripts/plot_lidar_scan.py data/rplidar_tests/rplidar_scan_YYYYMMDD_HHMMSS.csv
 
+Split a multi-revolution RPLIDAR capture into individual 360-degree scans:
+
+    python scripts/split_lidar_scans.py data/rplidar_tests/rplidar_scan_YYYYMMDD_HHMMSS.csv
+
+Save the split scans as separate CSV files:
+
+    python scripts/split_lidar_scans.py data/rplidar_tests/rplidar_scan_YYYYMMDD_HHMMSS.csv --save-scans
+
+Plot one segmented scan for inspection:
+
+    python scripts/plot_single_lidar_scan.py data/rplidar_tests/rplidar_scan_YYYYMMDD_HHMMSS.csv --scan-index 0
+
 Build a simple offline occupancy-grid PNG from a recorded RPLIDAR scan:
 
     python scripts/build_occupancy_grid_from_scan.py data/rplidar_tests/rplidar_scan_YYYYMMDD_HHMMSS.csv --width-m 8 --height-m 8 --resolution-m 0.05
+
+Scan segmentation is needed before scan matching and SLAM because a several-second
+capture can contain multiple lidar revolutions. Matching should operate on individual
+360-degree scans with coherent timestamps, not one mixed cloud spanning multiple turns.
 
 The occupancy-grid builder ray-traces from the single recorded sensor pose: cells along
 each beam are marked free and hit endpoints are marked occupied. This is still a
