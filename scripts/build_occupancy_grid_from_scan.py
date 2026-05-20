@@ -76,19 +76,31 @@ def build_occupancy_grid(input_csv: Path, width_m: float, height_m: float, resol
     )
     scan = load_lidar_csv(input_csv)
     valid_points = len(scan.valid_points())
-    marked_cells = grid.mark_lidar_points(scan)
-    return grid, valid_points, marked_cells
+    grid.update_from_lidar_scan(scan)
+    occupied_cells, free_cells = count_grid_cells(grid)
+    return grid, valid_points, occupied_cells, free_cells
+
+
+def count_grid_cells(grid) -> tuple[int, int]:
+    import numpy as np
+
+    from ackermann_robot.slam.occupancy_grid import FREE, OCCUPIED
+
+    occupied_cells = int(np.count_nonzero(grid.data == OCCUPIED))
+    free_cells = int(np.count_nonzero(grid.data == FREE))
+    return occupied_cells, free_cells
 
 
 def save_grid_png(grid, output_path: Path) -> None:
     import matplotlib.pyplot as plt
     import numpy as np
 
-    from ackermann_robot.slam.occupancy_grid import OCCUPIED, UNKNOWN
+    from ackermann_robot.slam.occupancy_grid import FREE, OCCUPIED, UNKNOWN
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    image = np.full(grid.data.shape, 0.85, dtype=float)
-    image[grid.data == UNKNOWN] = 0.65
+    image = np.full(grid.data.shape, 0.75, dtype=float)
+    image[grid.data == UNKNOWN] = 0.55
+    image[grid.data == FREE] = 1.0
     image[grid.data == OCCUPIED] = 0.0
 
     extent = [
@@ -114,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     output_path = default_output_path(args.output_dir)
     try:
-        grid, valid_points, _marked_cells = build_occupancy_grid(
+        grid, valid_points, occupied_cells, free_cells = build_occupancy_grid(
             args.input_csv, args.width_m, args.height_m, args.resolution_m
         )
         save_grid_png(grid, output_path)
@@ -126,6 +138,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"grid_height: {grid.height}")
     print(f"resolution_m: {grid.resolution_m}")
     print(f"valid_points: {valid_points}")
+    print(f"occupied_cells: {occupied_cells}")
+    print(f"free_cells: {free_cells}")
     print(f"output: {output_path}")
     return 0
 

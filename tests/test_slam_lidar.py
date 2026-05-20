@@ -8,7 +8,7 @@ import pytest
 
 from ackermann_robot.slam.lidar_loader import LidarLoadError, load_lidar_csv
 from ackermann_robot.slam.lidar_types import LidarPoint, LidarScan
-from ackermann_robot.slam.occupancy_grid import OCCUPIED, UNKNOWN, OccupancyGrid
+from ackermann_robot.slam.occupancy_grid import FREE, OCCUPIED, UNKNOWN, OccupancyGrid
 
 
 def load_script(name: str):
@@ -114,6 +114,40 @@ def test_occupancy_grid_marks_lidar_scan_points():
     assert grid.data[5, 3] == OCCUPIED
 
 
+def test_occupancy_grid_ray_tracing_marks_free_cells_and_endpoint():
+    grid = OccupancyGrid(width=7, height=5, resolution_m=1.0, origin_x_m=-3.0, origin_y_m=-2.0)
+    scan = LidarScan(
+        points=[LidarPoint(timestamp_s=1.0, angle_deg=0.0, distance_mm=2000.0)],
+        start_time_s=1.0,
+        end_time_s=1.0,
+    )
+
+    assert grid.update_from_lidar_scan(scan) == 1
+    origin_cell = grid.world_to_grid(0.0, 0.0)
+    between_cell = grid.world_to_grid(1.0, 0.0)
+    endpoint_cell = grid.world_to_grid(2.0, 0.0)
+
+    assert origin_cell == (3, 2)
+    assert grid.data[origin_cell[1], origin_cell[0]] == FREE
+    assert between_cell == (4, 2)
+    assert grid.data[between_cell[1], between_cell[0]] == FREE
+    assert endpoint_cell == (5, 2)
+    assert grid.data[endpoint_cell[1], endpoint_cell[0]] == OCCUPIED
+
+
+def test_occupancy_grid_ray_tracing_ignores_out_of_bounds_points():
+    grid = OccupancyGrid(width=3, height=3, resolution_m=1.0, origin_x_m=-1.5, origin_y_m=-1.5)
+    scan = LidarScan(
+        points=[LidarPoint(timestamp_s=1.0, angle_deg=0.0, distance_mm=4000.0)],
+        start_time_s=1.0,
+        end_time_s=1.0,
+    )
+
+    assert grid.world_to_grid(0.0, 0.0) == (1, 1)
+    assert grid.update_from_lidar_scan(scan) == 0
+    assert (grid.data == UNKNOWN).all()
+
+
 def test_build_occupancy_grid_script_parser_defaults():
     module = load_script("build_occupancy_grid_from_scan.py")
 
@@ -151,15 +185,17 @@ def test_build_occupancy_grid_script_uses_loader_and_grid(tmp_path: Path):
         encoding="utf-8",
     )
 
-    grid, valid_points, marked_cells = module.build_occupancy_grid(
+    grid, valid_points, occupied_cells, free_cells = module.build_occupancy_grid(
         csv_path, width_m=4.0, height_m=4.0, resolution_m=1.0
     )
 
     assert grid.width == 4
     assert grid.height == 4
     assert grid.resolution_m == 1.0
+    assert grid.world_to_grid(0.0, 0.0) == (2, 2)
     assert valid_points == 2
-    assert marked_cells == 2
+    assert occupied_cells == 2
+    assert free_cells >= 1
     assert grid.data[2, 3] == OCCUPIED
     assert grid.data[3, 2] == OCCUPIED
 
@@ -201,5 +237,7 @@ def test_build_occupancy_grid_script_main_prints_summary(
     assert "grid_height: 4" in captured.out
     assert "resolution_m: 1.0" in captured.out
     assert "valid_points: 1" in captured.out
+    assert "occupied_cells: 1" in captured.out
+    assert "free_cells:" in captured.out
     assert saved_paths
     assert saved_paths[0].parent == output_dir

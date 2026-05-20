@@ -94,6 +94,11 @@ Build a simple offline occupancy-grid PNG from a recorded RPLIDAR scan:
 
     python scripts/build_occupancy_grid_from_scan.py data/rplidar_tests/rplidar_scan_YYYYMMDD_HHMMSS.csv --width-m 8 --height-m 8 --resolution-m 0.05
 
+The occupancy-grid builder ray-traces from the single recorded sensor pose: cells along
+each beam are marked free and hit endpoints are marked occupied. This is still a
+single-pose/static scan map for offline inspection, not full SLAM with motion,
+loop closure, or CKF/PF state estimation.
+
 The first SLAM foundation lives in `ackermann_robot.slam`. It provides reusable recorded
 scan dataclasses, a CSV loader for RPLIDAR captures, and a basic metric occupancy grid for
 future CKF/PF state estimation and mapping work.
