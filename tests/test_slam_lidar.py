@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib.util
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -7,6 +9,16 @@ import pytest
 from ackermann_robot.slam.lidar_loader import LidarLoadError, load_lidar_csv
 from ackermann_robot.slam.lidar_types import LidarPoint, LidarScan
 from ackermann_robot.slam.occupancy_grid import OCCUPIED, UNKNOWN, OccupancyGrid
+
+
+def load_script(name: str):
+    script_path = Path(__file__).resolve().parents[1] / "scripts" / name
+    spec = importlib.util.spec_from_file_location(script_path.stem, script_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_lidar_scan_filters_valid_points_and_converts_to_xy():
@@ -100,3 +112,94 @@ def test_occupancy_grid_marks_lidar_scan_points():
     assert grid.mark_lidar_points(scan) == 2
     assert grid.data[3, 5] == OCCUPIED
     assert grid.data[5, 3] == OCCUPIED
+
+
+def test_build_occupancy_grid_script_parser_defaults():
+    module = load_script("build_occupancy_grid_from_scan.py")
+
+    args = module.build_parser().parse_args(["scan.csv"])
+
+    assert args.input_csv == Path("scan.csv")
+    assert args.width_m == 8.0
+    assert args.height_m == 8.0
+    assert args.resolution_m == 0.05
+    assert args.output_dir == Path("data/slam_tests")
+
+
+def test_build_occupancy_grid_script_default_output_path():
+    module = load_script("build_occupancy_grid_from_scan.py")
+
+    output = module.default_output_path(
+        Path("data/slam_tests"), now=datetime(2026, 5, 20, 8, 9, 10)
+    )
+
+    assert output == Path("data/slam_tests/occupancy_grid_20260520_080910.png")
+
+
+def test_build_occupancy_grid_script_uses_loader_and_grid(tmp_path: Path):
+    module = load_script("build_occupancy_grid_from_scan.py")
+    csv_path = tmp_path / "scan.csv"
+    csv_path.write_text(
+        "\n".join(
+            [
+                "timestamp_s,angle_deg,distance_mm,quality",
+                "1.0,0.0,1000.0,10",
+                "1.0,90.0,1000.0,10",
+                "1.0,45.0,0.0,10",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    grid, valid_points, marked_cells = module.build_occupancy_grid(
+        csv_path, width_m=4.0, height_m=4.0, resolution_m=1.0
+    )
+
+    assert grid.width == 4
+    assert grid.height == 4
+    assert grid.resolution_m == 1.0
+    assert valid_points == 2
+    assert marked_cells == 2
+    assert grid.data[2, 3] == OCCUPIED
+    assert grid.data[3, 2] == OCCUPIED
+
+
+def test_build_occupancy_grid_script_main_prints_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    module = load_script("build_occupancy_grid_from_scan.py")
+    csv_path = tmp_path / "scan.csv"
+    output_dir = tmp_path / "out"
+    csv_path.write_text(
+        "timestamp_s,angle_deg,distance_mm,quality\n1.0,0.0,1000.0,10\n",
+        encoding="utf-8",
+    )
+    saved_paths: list[Path] = []
+
+    def fake_save_grid_png(_grid, output_path: Path) -> None:
+        saved_paths.append(output_path)
+
+    monkeypatch.setattr(module, "save_grid_png", fake_save_grid_png)
+
+    result = module.main(
+        [
+            str(csv_path),
+            "--width-m",
+            "4",
+            "--height-m",
+            "4",
+            "--resolution-m",
+            "1",
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "grid_width: 4" in captured.out
+    assert "grid_height: 4" in captured.out
+    assert "resolution_m: 1.0" in captured.out
+    assert "valid_points: 1" in captured.out
+    assert saved_paths
+    assert saved_paths[0].parent == output_dir

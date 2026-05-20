@@ -90,6 +90,10 @@ Plot a recorded RPLIDAR scan without touching hardware:
 
     python scripts/plot_lidar_scan.py data/rplidar_tests/rplidar_scan_YYYYMMDD_HHMMSS.csv
 
+Build a simple offline occupancy-grid PNG from a recorded RPLIDAR scan:
+
+    python scripts/build_occupancy_grid_from_scan.py data/rplidar_tests/rplidar_scan_YYYYMMDD_HHMMSS.csv --width-m 8 --height-m 8 --resolution-m 0.05
+
 The first SLAM foundation lives in `ackermann_robot.slam`. It provides reusable recorded
 scan dataclasses, a CSV loader for RPLIDAR captures, and a basic metric occupancy grid for
 future CKF/PF state estimation and mapping work.
