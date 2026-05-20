@@ -104,3 +104,93 @@ def test_oak_camera_feature_formatter_handles_plain_objects():
         supportedTypes = ["COLOR"]
 
     assert module.format_camera_feature(Feature()) == "CAM_A: COLOR"
+
+
+def test_oak_capture_default_output_stem():
+    module = load_script("oak_capture_once.py")
+
+    output = module.default_output_stem(datetime(2026, 5, 20, 8, 9, 10))
+
+    assert output == Path("data/oak_tests/oak_capture_20260520_080910")
+
+
+def test_rplidar_scan_parser_defaults_do_not_open_port():
+    module = load_script("rplidar_scan_sample.py")
+
+    args = module.build_parser().parse_args([])
+
+    assert args.port == "/dev/rplidar"
+    assert args.baud == 460800
+    assert args.duration == 5.0
+    assert args.output is None
+
+
+def test_rplidar_scan_parser_accepts_overrides():
+    module = load_script("rplidar_scan_sample.py")
+
+    args = module.build_parser().parse_args(
+        ["--port", "/tmp/lidar", "--baud", "115200", "--duration", "1.5", "--output", "scan.csv"]
+    )
+
+    assert args.port == "/tmp/lidar"
+    assert args.baud == 115200
+    assert args.duration == 1.5
+    assert args.output == Path("scan.csv")
+
+
+def test_rplidar_scan_default_output_path():
+    module = load_script("rplidar_scan_sample.py")
+
+    output = module.default_output_path(datetime(2026, 5, 20, 8, 9, 10))
+
+    assert output == Path("data/rplidar_tests/rplidar_scan_20260520_080910.csv")
+
+
+def test_rplidar_scan_csv_row_formats_optional_quality():
+    module = load_script("rplidar_scan_sample.py")
+
+    with_quality = module.csv_row(
+        module.ScanPoint(timestamp_s=1.23456789, angle_deg=45.6789, distance_mm=1234.5678, quality=12)
+    )
+    without_quality = module.csv_row(
+        module.ScanPoint(timestamp_s=1.2, angle_deg=2.0, distance_mm=3.0, quality=None)
+    )
+
+    assert with_quality == {
+        "timestamp_s": "1.234568",
+        "angle_deg": "45.679",
+        "distance_mm": "1234.568",
+        "quality": "12",
+    }
+    assert without_quality["quality"] == ""
+
+
+def test_rplidar_scan_measurement_to_point_and_summary():
+    module = load_script("rplidar_scan_sample.py")
+
+    class Measurement:
+        angle = 10.5
+        distance = 250.25
+        quality = 7
+
+    point = module.measurement_to_point(Measurement(), timestamp_s=42.0)
+    summary = module.summarize_points(
+        [
+            point,
+            module.ScanPoint(timestamp_s=43.0, angle_deg=20.0, distance_mm=100.0),
+        ]
+    )
+
+    assert point == module.ScanPoint(
+        timestamp_s=42.0,
+        angle_deg=10.5,
+        distance_mm=250.25,
+        quality=7,
+    )
+    assert summary == {
+        "count": 2,
+        "min_angle": 10.5,
+        "max_angle": 20.0,
+        "min_distance": 100.0,
+        "max_distance": 250.25,
+    }

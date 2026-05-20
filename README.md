@@ -65,6 +65,21 @@ Open and close the RPLIDAR C1 serial port:
 
     python scripts/test_rplidar_port.py --port /dev/rplidar --baud 460800
 
+Capture one OAK-D Lite RGB frame plus a raw depth frame when stereo depth is available:
+
+    python scripts/oak_capture_once.py
+
+The OAK capture saves files under `data/oak_tests/`. RGB is saved as `.png`; depth is
+saved as a raw NumPy `.npy` array in millimeters for later processing.
+
+Capture a short finite RPLIDAR C1 scan sample:
+
+    python scripts/rplidar_scan_sample.py --port /dev/rplidar --baud 460800 --duration 5
+
+RPLIDAR samples are saved as CSV files under `data/rplidar_tests/` with timestamp,
+angle, distance, and quality columns. These raw sensor files will feed the custom
+SLAM pipeline we build later.
+
 Capture passive C30D bytes without writing anything to the controller:
 
     python scripts/capture_c30d_passive.py --port /dev/c30d --baud 115200 --duration 5
