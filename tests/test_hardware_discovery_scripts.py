@@ -306,6 +306,94 @@ def test_plot_c30d_candidate_fields_process_prints_paths_and_stats(capsys, monke
     assert "candidate_int16_be_02_03" in output
 
 
+def test_compare_c30d_candidate_timeseries_requires_pair_selection():
+    module = load_script("compare_c30d_candidate_timeseries.py")
+
+    try:
+        module.build_parser().parse_args(["first.bin", "second.bin"])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("expected parser failure")
+
+
+def test_compare_c30d_candidate_timeseries_parser_accepts_single_pair():
+    module = load_script("compare_c30d_candidate_timeseries.py")
+
+    args = module.build_parser().parse_args(["first.bin", "second.bin", "--pair", "02_03"])
+
+    assert args.captures == [Path("first.bin"), Path("second.bin")]
+    assert args.pair == "02_03"
+    assert args.pairs is None
+    assert args.endian == "be"
+    assert args.output_dir == Path("data/c30d_analysis")
+
+
+def test_compare_c30d_candidate_timeseries_bare_pairs_uses_aligned_defaults():
+    module = load_script("compare_c30d_candidate_timeseries.py")
+
+    pairs = module.resolve_pairs(None, [])
+
+    assert pairs == [
+        (2, 3),
+        (6, 7),
+        (8, 9),
+        (10, 11),
+        (12, 13),
+        (14, 15),
+        (16, 17),
+        (18, 19),
+    ]
+    assert (3, 4) not in pairs
+    assert (5, 6) not in pairs
+    assert (7, 8) not in pairs
+
+
+def test_compare_c30d_candidate_timeseries_decodes_signed_int16_values():
+    module = load_script("compare_c30d_candidate_timeseries.py")
+    frames = [
+        bytes([0x7B, 0x00, 0x01, 0x02, *([0x00] * 19), 0x7D]),
+        bytes([0x7B, 0x00, 0xFF, 0xFE, *([0x00] * 19), 0x7D]),
+    ]
+
+    assert module.candidate_name((2, 3), "be") == "candidate_int16_be_02_03"
+    assert module.decode_candidate_values(frames, (2, 3), "be") == [258, -2]
+    assert module.decode_candidate_values(frames, (2, 3), "le") == [513, -257]
+
+
+def test_compare_c30d_candidate_timeseries_output_path_names_pair(tmp_path):
+    module = load_script("compare_c30d_candidate_timeseries.py")
+
+    path = module.output_path_for((6, 7), "le", tmp_path)
+
+    assert path == tmp_path / "compare_candidate_int16_le_06_07.png"
+
+
+def test_compare_c30d_candidate_timeseries_process_pair_prints_stats(capsys, monkeypatch, tmp_path):
+    module = load_script("compare_c30d_candidate_timeseries.py")
+    first = tmp_path / "first.bin"
+    second = tmp_path / "second.bin"
+    frame_a = bytes([0x7B, 0x00, 0x01, 0x02, *([0x00] * 19), 0x7D])
+    frame_b = bytes([0x7B, 0x00, 0x03, 0x04, *([0x00] * 19), 0x7D])
+    frames_by_path = {first: [frame_a], second: [frame_b]}
+
+    monkeypatch.setattr(module, "load_frames", lambda path: frames_by_path[path])
+
+    def fake_save_comparison_plot(_values_by_capture, pair, endian, output_dir):
+        return module.output_path_for(pair, endian, output_dir)
+
+    monkeypatch.setattr(module, "save_comparison_plot", fake_save_comparison_plot)
+
+    path = module.process_pair([first, second], (2, 3), "be", tmp_path)
+
+    output = capsys.readouterr().out
+    assert path == tmp_path / "compare_candidate_int16_be_02_03.png"
+    assert "candidate_int16_be_02_03" in output
+    assert "count=1 min=258 max=258 mean=258.00 stdev=0.00" in output
+    assert "count=1 min=772 max=772 mean=772.00 stdev=0.00" in output
+    assert "saved_plot=" in output
+
+
 def test_analyze_c30d_capture_resolve_requires_path_or_latest():
     module = load_script("analyze_c30d_capture.py")
 

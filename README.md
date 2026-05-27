@@ -183,6 +183,23 @@ The plotting tool uses adjacent signed int16 candidate pairs from `02_03` throug
 checksum candidate. Plot labels remain candidate names only and do not assign encoder,
 IMU, steering, or other physical meanings.
 
+Plot one candidate field across multiple captures on a single comparison graph:
+
+    python scripts/compare_c30d_candidate_timeseries.py data/c30d_captures/stationary.bin data/c30d_captures/motion.bin --pair 02_03
+
+Plot several selected candidates, one PNG per pair:
+
+    python scripts/compare_c30d_candidate_timeseries.py data/c30d_captures/*.bin --pairs 02_03 06_07 08_09 --endian le
+
+Use the aligned suggested candidate pairs without listing them:
+
+    python scripts/compare_c30d_candidate_timeseries.py data/c30d_captures/*.bin --pairs
+
+The focused comparison plotter overlays the same candidate field across captures instead
+of overlaying many fields from one capture. Bare `--pairs` uses only aligned pairs
+`02_03`, `06_07`, `08_09`, `10_11`, `12_13`, `14_15`, `16_17`, and `18_19`; overlapping
+pairs such as `03_04`, `05_06`, and `07_08` are not included by default.
+
 ## Logs
 
 Use `setup_logging()` from `ackermann_robot.utils.logging_utils` to create a timestamped
