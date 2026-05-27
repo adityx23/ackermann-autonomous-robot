@@ -144,10 +144,12 @@ Analyze the newest saved C30D capture with frame statistics:
     python scripts/c30d_frame_stats.py --latest
 
 The frame statistics command also works only from saved `.bin` files. It prints total
-bytes, candidate frame count, frame length distribution, the first 20 frames in hex,
-constant byte positions, changing byte positions, and exact repeated frame patterns.
-These are passive structure observations only; no byte is labeled as encoder, IMU, or
-any other protocol field yet.
+bytes, valid fixed-length frame count, rejected/resync count, frame length distribution,
+the first 20 valid frames in hex, constant byte positions, changing byte positions, and
+exact repeated frame patterns. Fixed-length C30D frame extraction uses `0x7B` at index 0,
+24 total bytes, and `0x7D` at index 23 so payload bytes equal to `0x7D` do not truncate
+frames. These are passive structure observations only; no byte is labeled as encoder,
+IMU, or any other protocol field yet.
 
 ## Logs
 

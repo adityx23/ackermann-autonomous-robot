@@ -110,34 +110,23 @@ def test_c30d_frame_stats_latest_selects_newest_bin(tmp_path):
 def test_c30d_frame_stats_formats_read_only_summary(capsys, tmp_path):
     module = load_script("c30d_frame_stats.py")
     capture = tmp_path / "capture.bin"
-    data = bytes(
-        [
-            0x7B,
-            0x10,
-            0xAA,
-            0x7D,
-            0x00,
-            0x7B,
-            0x11,
-            0xAA,
-            0x7D,
-            0x7B,
-            0x10,
-            0xAA,
-            0x7D,
-        ]
-    )
+    repeated = bytes([0x7B, 0x10, 0xAA, *([0x10] * 20), 0x7D])
+    changed = bytes([0x7B, 0x11, 0xAA, *([0x11] * 20), 0x7D])
+    invalid = bytes([0x7B, *([0x33] * 22), 0x00])
+    data = invalid + repeated + changed + repeated + repeated[:8]
 
     module.print_frame_stats(capture, data)
 
     output = capsys.readouterr().out
     assert "Read-only C30D frame analysis from saved capture only." in output
-    assert "total_bytes: 13" in output
-    assert "frame_count: 3" in output
-    assert "frame_length_distribution: 4:3" in output
-    assert "constant_byte_positions: 0=0x7b, 2=0xaa, 3=0x7d" in output
+    assert "total_bytes: 104" in output
+    assert "valid_fixed_length_frame_count: 3" in output
+    assert "rejected_resync_count: 1" in output
+    assert "partial_frame_count: 1" in output
+    assert "frame_length_distribution: 24:3" in output
+    assert "constant_byte_positions: 0=0x7b, 2=0xaa, 23=0x7d" in output
     assert "changing_byte_positions: 1" in output
-    assert "count=2 hex=7b 10 aa 7d" in output
+    assert f"count=2 hex={repeated.hex(' ')}" in output
 
 
 def test_analyze_c30d_capture_resolve_requires_path_or_latest():

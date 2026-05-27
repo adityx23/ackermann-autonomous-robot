@@ -16,7 +16,7 @@ DEFAULT_FRAME_PRINT_LIMIT = 20
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Analyze candidate C30D frames from a saved passive .bin capture."
+        description="Analyze fixed-length C30D frames from a saved passive .bin capture."
     )
     parser.add_argument("capture", nargs="?", type=Path, help="Path to a saved .bin capture file.")
     parser.add_argument(
@@ -63,15 +63,18 @@ def format_changing_positions(positions: list[int]) -> str:
 
 
 def print_frame_stats(capture_path: Path, data: bytes) -> None:
-    from ackermann_robot.drivers.c30d_frames import extract_frames, summarize_frames
+    from ackermann_robot.drivers.c30d_frames import extract_frames_with_stats, summarize_frames
 
-    frames = extract_frames(data)
+    extraction = extract_frames_with_stats(data)
+    frames = extraction.frames
     summary = summarize_frames(frames)
 
     print("Read-only C30D frame analysis from saved capture only.")
     print(f"capture_path: {capture_path}")
     print(f"total_bytes: {len(data)}")
-    print(f"frame_count: {summary['frame_count']}")
+    print(f"valid_fixed_length_frame_count: {summary['frame_count']}")
+    print(f"rejected_resync_count: {extraction.rejected_resync_count}")
+    print(f"partial_frame_count: {extraction.partial_frame_count}")
     length_distribution = format_distribution(summary["frame_length_distribution"])
     print(f"frame_length_distribution: {length_distribution}")
 

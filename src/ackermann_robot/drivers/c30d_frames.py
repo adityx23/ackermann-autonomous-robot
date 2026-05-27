@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
 from typing import Iterable, TypedDict
 
 FRAME_START = 0x7B
 FRAME_END = 0x7D
+FRAME_LENGTH = 24
 
 
 class FrameSummary(TypedDict):
@@ -15,8 +17,52 @@ class FrameSummary(TypedDict):
     repeated_frame_patterns: dict[str, int]
 
 
+@dataclass(frozen=True)
+class FrameExtractionResult:
+    frames: list[bytes]
+    rejected_resync_count: int
+    partial_frame_count: int
+
+
 def extract_frames(data: bytes) -> list[bytes]:
-    """Extract candidate C30D frames between 0x7B and 0x7D delimiters."""
+    """Extract valid fixed-length C30D frames from raw captured bytes."""
+    return extract_frames_with_stats(data).frames
+
+
+def extract_frames_with_stats(data: bytes) -> FrameExtractionResult:
+    frames: list[bytes] = []
+    rejected_resync_count = 0
+    partial_frame_count = 0
+    search_from = 0
+
+    while True:
+        start = data.find(bytes([FRAME_START]), search_from)
+        if start < 0:
+            break
+
+        frame_end = start + FRAME_LENGTH
+        if frame_end > len(data):
+            partial_frame_count += 1
+            break
+
+        frame = data[start:frame_end]
+        if frame[FRAME_LENGTH - 1] == FRAME_END:
+            frames.append(frame)
+            search_from = frame_end
+            continue
+
+        rejected_resync_count += 1
+        search_from = start + 1
+
+    return FrameExtractionResult(
+        frames=frames,
+        rejected_resync_count=rejected_resync_count,
+        partial_frame_count=partial_frame_count,
+    )
+
+
+def extract_delimited_frames(data: bytes) -> list[bytes]:
+    """Extract delimiter-bounded candidates for debugging historical captures."""
     frames: list[bytes] = []
     search_from = 0
     while True:
