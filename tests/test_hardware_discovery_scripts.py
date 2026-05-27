@@ -129,6 +129,102 @@ def test_c30d_frame_stats_formats_read_only_summary(capsys, tmp_path):
     assert f"count=2 hex={repeated.hex(' ')}" in output
 
 
+def test_compare_c30d_captures_parser_defaults_to_first_baseline():
+    module = load_script("compare_c30d_captures.py")
+
+    args = module.build_parser().parse_args(["stationary.bin", "motion.bin"])
+
+    assert args.captures == [Path("stationary.bin"), Path("motion.bin")]
+    assert args.baseline_index == 0
+    assert args.top == 8
+
+
+def test_compare_c30d_captures_byte_stats_are_synthetic_only():
+    module = load_script("compare_c30d_captures.py")
+
+    stats = module.byte_position_stats(
+        [
+            bytes([0x7B, *([0x10] * 22), 0x7D]),
+            bytes([0x7B, *([0x20] * 22), 0x7D]),
+        ]
+    )
+
+    assert stats[0] == module.NumericStats(
+        minimum=0x7B, maximum=0x7B, mean=0x7B, stdev=0.0, unique_count=1
+    )
+    assert stats[1].minimum == 0x10
+    assert stats[1].maximum == 0x20
+    assert stats[1].mean == 24.0
+    assert stats[1].unique_count == 2
+    assert stats[23] == module.NumericStats(
+        minimum=0x7D, maximum=0x7D, mean=0x7D, stdev=0.0, unique_count=1
+    )
+
+
+def test_compare_c30d_captures_candidate_int16_labels_payload_pairs_only():
+    module = load_script("compare_c30d_captures.py")
+    frames = [
+        bytes([0x7B, 0x01, 0x02, *([0x00] * 20), 0x7D]),
+        bytes([0x7B, 0x03, 0x04, *([0x00] * 20), 0x7D]),
+    ]
+
+    stats = module.candidate_int16_stats(frames)
+
+    assert "candidate_int16_be_01_02" in stats
+    assert "candidate_int16_le_01_02" in stats
+    assert "candidate_int16_be_00_01" not in stats
+    assert "candidate_int16_le_22_23" not in stats
+    assert stats["candidate_int16_be_01_02"].minimum == 258
+    assert stats["candidate_int16_le_01_02"].minimum == 513
+
+
+def test_compare_c30d_captures_highlights_changes_against_baseline(tmp_path):
+    module = load_script("compare_c30d_captures.py")
+
+    baseline_path = tmp_path / "stationary.bin"
+    changed_path = tmp_path / "changed.bin"
+    baseline_frames = [
+        bytes([0x7B, 0x10, *([0x20] * 21), 0x7D]),
+        bytes([0x7B, 0x10, *([0x20] * 21), 0x7D]),
+        bytes([0x7B, 0x10, *([0x20] * 21), 0x7D]),
+    ]
+    changed_frames = [
+        bytes([0x7B, 0x00, *([0x20] * 21), 0x7D]),
+        bytes([0x7B, 0x40, *([0x20] * 21), 0x7D]),
+        bytes([0x7B, 0x80, *([0x20] * 21), 0x7D]),
+    ]
+    baseline_path.write_bytes(b"".join(baseline_frames))
+    changed_path.write_bytes(b"noise" + b"".join(changed_frames))
+
+    baseline = module.analyze_capture(baseline_path)
+    changed = module.analyze_capture(changed_path)
+    highlighted = module.highlighted_byte_positions(changed, baseline)
+
+    assert baseline.frame_count == 3
+    assert changed.frame_count == 3
+    assert highlighted[0][0] == 1
+
+
+def test_compare_c30d_captures_prints_required_sections(capsys, tmp_path):
+    module = load_script("compare_c30d_captures.py")
+    baseline_path = tmp_path / "stationary.bin"
+    changed_path = tmp_path / "motion.bin"
+    baseline_path.write_bytes(bytes([0x7B, *([0x10] * 22), 0x7D]) * 2)
+    changed_path.write_bytes(
+        bytes([0x7B, 0x00, *([0x10] * 21), 0x7D]) + bytes([0x7B, 0x40, *([0x10] * 21), 0x7D])
+    )
+
+    result = module.main([str(baseline_path), str(changed_path), "--top", "2"])
+
+    output = capsys.readouterr().out
+    assert result == 0
+    assert "Frame Counts Per File" in output
+    assert "Byte-Level Comparison Against Baseline" in output
+    assert "Top Changing Byte Positions Per Capture" in output
+    assert "Top Changing Candidate Int16 Fields Per Capture" in output
+    assert "candidate_int16_be_01_02" in output
+
+
 def test_analyze_c30d_capture_resolve_requires_path_or_latest():
     module = load_script("analyze_c30d_capture.py")
 

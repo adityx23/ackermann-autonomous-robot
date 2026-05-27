@@ -151,6 +151,20 @@ exact repeated frame patterns. Fixed-length C30D frame extraction uses `0x7B` at
 frames. These are passive structure observations only; no byte is labeled as encoder,
 IMU, or any other protocol field yet.
 
+Compare multiple saved C30D captures against the first file as the baseline:
+
+    python scripts/compare_c30d_captures.py data/c30d_captures/stationary.bin data/c30d_captures/motion.bin
+
+Use a different input as the baseline and print more top-changing candidates:
+
+    python scripts/compare_c30d_captures.py data/c30d_captures/*.bin --baseline-index 1 --top 12
+
+The comparative analyzer is also offline and read-only. It uses the same fixed 24-byte
+frame extractor, reports frame counts per file, byte-level min/max/mean/standard
+deviation/unique-count summaries, byte positions that vary more than the baseline, and
+adjacent payload-only signed int16 candidates labeled only as `candidate_int16_be_XX_YY`
+or `candidate_int16_le_XX_YY`.
+
 ## Logs
 
 Use `setup_logging()` from `ackermann_robot.utils.logging_utils` to create a timestamped
