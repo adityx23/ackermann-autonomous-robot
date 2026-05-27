@@ -225,6 +225,87 @@ def test_compare_c30d_captures_prints_required_sections(capsys, tmp_path):
     assert "candidate_int16_be_01_02" in output
 
 
+def test_plot_c30d_candidate_fields_parser_defaults_are_read_only():
+    module = load_script("plot_c30d_candidate_fields.py")
+
+    args = module.build_parser().parse_args(["capture.bin"])
+
+    assert args.captures == [Path("capture.bin")]
+    assert args.output_dir == Path("data/c30d_analysis")
+    assert args.pairs is None
+    assert args.endian == "both"
+
+
+def test_plot_c30d_candidate_fields_default_pairs_stop_at_18_19():
+    module = load_script("plot_c30d_candidate_fields.py")
+
+    pairs = module.default_pairs()
+
+    assert pairs[0] == (2, 3)
+    assert pairs[-1] == (18, 19)
+    assert (21, 22) not in pairs
+    assert (22, 23) not in pairs
+
+
+def test_plot_c30d_candidate_fields_parse_pairs_rejects_checksum_candidate():
+    module = load_script("plot_c30d_candidate_fields.py")
+
+    assert module.parse_pair("02_03") == (2, 3)
+    try:
+        module.parse_pair("21_22")
+    except ValueError as exc:
+        assert "02_03 to 18_19" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_plot_c30d_candidate_fields_decodes_signed_int16_candidates():
+    module = load_script("plot_c30d_candidate_fields.py")
+    frames = [
+        bytes([0x7B, 0x00, 0x01, 0x02, *([0x00] * 19), 0x7D]),
+        bytes([0x7B, 0x00, 0xFF, 0xFE, *([0x00] * 19), 0x7D]),
+    ]
+
+    assert module.candidate_name((2, 3), "be") == "candidate_int16_be_02_03"
+    assert module.candidate_name((2, 3), "le") == "candidate_int16_le_02_03"
+    assert module.decode_candidate_values(frames, (2, 3), "be") == [258, -2]
+    assert module.decode_candidate_values(frames, (2, 3), "le") == [513, -257]
+
+
+def test_plot_c30d_candidate_fields_basic_stats_for_candidates():
+    module = load_script("plot_c30d_candidate_fields.py")
+
+    stats = module.basic_stats([10, 20, 30])
+
+    assert stats["count"] == 3
+    assert stats["min"] == 10
+    assert stats["max"] == 30
+    assert stats["mean"] == 20.0
+
+
+def test_plot_c30d_candidate_fields_process_prints_paths_and_stats(capsys, monkeypatch, tmp_path):
+    module = load_script("plot_c30d_candidate_fields.py")
+    capture = tmp_path / "capture.bin"
+    output_dir = tmp_path / "analysis"
+    frames = [bytes([0x7B, 0x00, 0x01, 0x02, *([0x00] * 19), 0x7D])]
+
+    monkeypatch.setattr(module, "load_frames", lambda _path: (frames, 0, 0))
+
+    def fake_save_candidate_plot(capture_path, _frames, _pairs, endian, output_path):
+        path = module.output_path_for(capture_path, output_path, endian)
+        return path, {"candidate_int16_be_02_03": module.basic_stats([258])}
+
+    monkeypatch.setattr(module, "save_candidate_plot", fake_save_candidate_plot)
+
+    paths = module.process_capture(capture, output_dir, [(2, 3)], ["be"])
+
+    output = capsys.readouterr().out
+    assert paths == [output_dir / "capture_candidate_int16_be.png"]
+    assert "valid_frames=1" in output
+    assert "saved_plot=" in output
+    assert "candidate_int16_be_02_03" in output
+
+
 def test_analyze_c30d_capture_resolve_requires_path_or_latest():
     module = load_script("analyze_c30d_capture.py")
 

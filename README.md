@@ -165,6 +165,24 @@ deviation/unique-count summaries, byte positions that vary more than the baselin
 adjacent payload-only signed int16 candidates labeled only as `candidate_int16_be_XX_YY`
 or `candidate_int16_le_XX_YY`.
 
+Plot read-only candidate int16 fields from one or more saved C30D captures:
+
+    python scripts/plot_c30d_candidate_fields.py data/c30d_captures/stationary.bin data/c30d_captures/motion.bin
+
+Plot selected adjacent payload byte pairs and only one byte order:
+
+    python scripts/plot_c30d_candidate_fields.py data/c30d_captures/motion.bin --pairs 02_03 06_07 08_09 --endian le
+
+Save plots to a custom analysis directory:
+
+    python scripts/plot_c30d_candidate_fields.py data/c30d_captures/*.bin --output-dir data/c30d_analysis
+
+Candidate field plots are saved as PNG files under `data/c30d_analysis/` by default.
+The plotting tool uses adjacent signed int16 candidate pairs from `02_03` through
+`18_19` in big-endian, little-endian, or both. Byte 22 is excluded because it is only a
+checksum candidate. Plot labels remain candidate names only and do not assign encoder,
+IMU, steering, or other physical meanings.
+
 ## Logs
 
 Use `setup_logging()` from `ackermann_robot.utils.logging_utils` to create a timestamped
