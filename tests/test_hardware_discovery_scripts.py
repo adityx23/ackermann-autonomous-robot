@@ -85,6 +85,61 @@ def test_analyze_c30d_capture_latest_selects_newest_bin(tmp_path):
     assert module.newest_capture(tmp_path) == newer
 
 
+def test_c30d_frame_stats_parser_defaults_do_not_open_port():
+    module = load_script("c30d_frame_stats.py")
+
+    args = module.build_parser().parse_args([])
+
+    assert args.capture is None
+    assert args.latest is False
+
+
+def test_c30d_frame_stats_latest_selects_newest_bin(tmp_path):
+    module = load_script("c30d_frame_stats.py")
+    older = tmp_path / "older.bin"
+    newer = tmp_path / "newer.bin"
+    older.write_bytes(b"old")
+    newer.write_bytes(b"new")
+
+    os.utime(older, (1_000_000, 1_000_000))
+    os.utime(newer, (2_000_000, 2_000_000))
+
+    assert module.newest_capture(tmp_path) == newer
+
+
+def test_c30d_frame_stats_formats_read_only_summary(capsys, tmp_path):
+    module = load_script("c30d_frame_stats.py")
+    capture = tmp_path / "capture.bin"
+    data = bytes(
+        [
+            0x7B,
+            0x10,
+            0xAA,
+            0x7D,
+            0x00,
+            0x7B,
+            0x11,
+            0xAA,
+            0x7D,
+            0x7B,
+            0x10,
+            0xAA,
+            0x7D,
+        ]
+    )
+
+    module.print_frame_stats(capture, data)
+
+    output = capsys.readouterr().out
+    assert "Read-only C30D frame analysis from saved capture only." in output
+    assert "total_bytes: 13" in output
+    assert "frame_count: 3" in output
+    assert "frame_length_distribution: 4:3" in output
+    assert "constant_byte_positions: 0=0x7b, 2=0xaa, 3=0x7d" in output
+    assert "changing_byte_positions: 1" in output
+    assert "count=2 hex=7b 10 aa 7d" in output
+
+
 def test_analyze_c30d_capture_resolve_requires_path_or_latest():
     module = load_script("analyze_c30d_capture.py")
 

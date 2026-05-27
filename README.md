@@ -135,6 +135,20 @@ The analyzer works only from saved `.bin` files. It reports byte counts, marker 
 candidate frames between `0x7B` and `0x7D`, and frame length distribution without assigning
 protocol field meanings.
 
+Run the read-only candidate frame statistics layer on a saved C30D capture:
+
+    python scripts/c30d_frame_stats.py data/c30d_captures/c30d_capture_YYYYMMDD_HHMMSS.bin
+
+Analyze the newest saved C30D capture with frame statistics:
+
+    python scripts/c30d_frame_stats.py --latest
+
+The frame statistics command also works only from saved `.bin` files. It prints total
+bytes, candidate frame count, frame length distribution, the first 20 frames in hex,
+constant byte positions, changing byte positions, and exact repeated frame patterns.
+These are passive structure observations only; no byte is labeled as encoder, IMU, or
+any other protocol field yet.
+
 ## Logs
 
 Use `setup_logging()` from `ackermann_robot.utils.logging_utils` to create a timestamped
