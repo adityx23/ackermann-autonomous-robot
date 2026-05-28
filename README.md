@@ -221,6 +221,16 @@ exact repeated frame patterns. Fixed-length C30D frame extraction uses `0x7B` at
 frames. These are passive structure observations only; no byte is labeled as encoder,
 IMU, or any other protocol field yet.
 
+Analyze read-only checksum hypotheses for saved C30D captures:
+
+    python scripts/analyze_c30d_checksum.py data/c30d_captures/*.bin
+
+The checksum analyzer tests byte 22 as a checksum candidate using simple sum, two's
+complement, one's complement, and XOR hypotheses over documented byte ranges. It reports
+match counts and percentages only. A 100% match across multiple captures is evidence for
+review, not confirmation of the protocol by itself. It reads only saved `.bin` files and
+never writes to C30D.
+
 Compare multiple saved C30D captures against the first file as the baseline:
 
     python scripts/compare_c30d_captures.py data/c30d_captures/stationary.bin data/c30d_captures/motion.bin

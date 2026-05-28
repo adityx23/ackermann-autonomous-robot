@@ -14,6 +14,9 @@ research scaffold, not an implementation plan for motor movement.
 - Passive read-only feedback captures show a fixed 24-byte frame shape.
 - Feedback byte 0 is `0x7B`.
 - Feedback byte 23 is `0x7D`.
+- Feedback byte 22 changes heavily and is a checksum candidate.
+- Feedback byte 20 is often observed as `0x2A`.
+- Feedback byte 21 may be status, counter, or mode data, but this is not confirmed.
 - Feedback candidate fields exist in the current analysis scripts.
 - Candidate feedback field names are provisional and not confirmed protocol labels.
 - The C30D command protocol is unknown.
@@ -46,6 +49,16 @@ Local reference search:
 The search tool reads local files under `external/`, `docs/`, `src/`, and `scripts/` and
 prints keyword matches only. It does not access hardware and does not infer protocol
 details from matches.
+
+Checksum hypothesis analysis:
+
+    python scripts/analyze_c30d_checksum.py data/c30d_captures/*.bin
+
+The checksum analyzer reads only saved passive `.bin` captures. It tests simple
+sum/xor/complement checksum hypotheses against byte 22 over documented byte ranges such
+as bytes 1 through 21, bytes 0 through 21, bytes 1 through 20, and bytes 8 through 21.
+It reports match counts and percentages. A 100% match across multiple captures is only
+evidence for review, not final protocol confirmation by itself.
 
 ## Command Packet Hypotheses
 
