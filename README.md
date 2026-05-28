@@ -215,6 +215,23 @@ candidate names only: `candidate_forward_motion` from bytes `02_03`,
 `14_15`, `16_17`, and `18_19`, plus `checksum_candidate` from byte `22`.
 These names reflect current hand-spin observations and are not confirmed protocol fields.
 
+Monitor live C30D feedback candidates without writing to the controller:
+
+    python scripts/monitor_c30d_feedback_readonly.py --duration 5
+
+Use a different serial port or print every parsed frame:
+
+    python scripts/monitor_c30d_feedback_readonly.py --port /dev/c30d --baud 115200 --duration 10 --print-every 1
+
+Save decoded live candidate rows under `data/c30d_live/`:
+
+    python scripts/monitor_c30d_feedback_readonly.py --duration 5 --output c30d_live_feedback.csv
+
+The live monitor is explicitly read-only. It opens the C30D serial port with a read-only
+file descriptor, extracts fixed 24-byte frames with `0x7B` at byte 0 and `0x7D` at byte
+23, decodes the same candidate fields as the offline exporter, and never writes bytes or
+sends motor/steering commands. Live field names remain candidate labels only.
+
 Summarize one or more exported feedback candidate CSV files:
 
     python scripts/summarize_c30d_feedback_candidates.py data/c30d_analysis/motion_feedback_candidates.csv
