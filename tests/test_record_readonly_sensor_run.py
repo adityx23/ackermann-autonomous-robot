@@ -115,10 +115,20 @@ def test_metadata_for_run_contains_required_read_only_fields(tmp_path):
     assert metadata["rplidar"]["port"] == "/dev/mock-rplidar"
     assert metadata["oak"]["rgb_output_dir"] == "oak_rgb"
     assert metadata["safety"] == {
+        "note": "read-only sensor run; sends no motor or steering commands",
         "c30d_write": False,
         "motor_commands": False,
         "ros2": False,
     }
+
+
+def test_c30d_output_paths_are_run_folder_files(tmp_path):
+    module = load_record_script()
+
+    feedback_path, odometry_path = module.c30d_output_paths(tmp_path)
+
+    assert feedback_path == tmp_path / "c30d_feedback.csv"
+    assert odometry_path == tmp_path / "c30d_odometry.csv"
 
 
 def test_write_metadata_round_trips_yaml(tmp_path):

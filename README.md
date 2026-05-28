@@ -321,8 +321,9 @@ Use a custom output root:
 The unified logger creates `data/runs/run_YYYYMMDD_HHMMSS/` by default and writes
 `metadata.yaml` with start time, duration, enabled sensors, C30D port/baud, RPLIDAR
 port/baud, and OAK capture settings. Enabled sensor outputs are `c30d_feedback.csv`,
-`rplidar_scan.csv`, and `oak_rgb/oak_rgb_0000.jpg`. C30D is opened read-only and the
-logger never sends motor or steering commands.
+provisional straight-only `c30d_odometry.csv`, `rplidar_scan.csv`, and
+`oak_rgb/oak_rgb_0000.jpg`. C30D is opened read-only and the logger never sends motor or
+steering commands.
 
 ## Logs
 

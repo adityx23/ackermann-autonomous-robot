@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import os
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -185,6 +187,7 @@ def metadata_for_run(settings: RunSettings, start_time: datetime) -> dict[str, A
             "rgb_output_dir": "oak_rgb",
         },
         "safety": {
+            "note": "read-only sensor run; sends no motor or steering commands",
             "c30d_write": False,
             "motor_commands": False,
             "ros2": False,
@@ -198,17 +201,80 @@ def write_metadata(run_dir: Path, metadata: dict[str, Any]) -> Path:
     return path
 
 
-def record_c30d(settings: RunSettings, run_dir: Path) -> int:
-    from monitor_c30d_feedback_readonly import monitor_feedback
+def c30d_output_paths(run_dir: Path) -> tuple[Path, Path]:
+    return run_dir / "c30d_feedback.csv", run_dir / "c30d_odometry.csv"
 
-    output_path = run_dir / "c30d_feedback.csv"
-    return monitor_feedback(
-        port=settings.c30d_port,
-        baud=settings.c30d_baud,
-        duration_s=settings.duration_s,
-        output_path=output_path,
-        print_every=100,
+
+def record_c30d(settings: RunSettings, run_dir: Path) -> dict[str, int]:
+    from ackermann_robot.drivers.c30d_feedback import (
+        C30DFeedbackCandidate,
+        parse_feedback_candidates,
     )
+    from monitor_c30d_feedback_readonly import (
+        READ_SIZE,
+        extract_fixed_frames_from_buffer,
+        open_readonly_serial_fd,
+    )
+    from monitor_c30d_odometry_readonly import (
+        LiveOdometrySample,
+        LiveOdometryState,
+        update_live_odometry,
+    )
+    from ackermann_robot.odometry.c30d_dead_reckoning import load_c30d_calibration
+
+    feedback_path, odometry_path = c30d_output_paths(run_dir)
+    feedback_path.parent.mkdir(parents=True, exist_ok=True)
+    calibration = load_c30d_calibration("config/c30d_calibration.yaml")
+
+    parsed_count = 0
+    state = LiveOdometryState()
+    buffer = bytearray()
+    deadline = time.monotonic() + settings.duration_s
+    fd: int | None = None
+
+    with feedback_path.open("w", newline="") as feedback_file:
+        feedback_writer = csv.DictWriter(
+            feedback_file,
+            fieldnames=[field.name for field in fields(C30DFeedbackCandidate)],
+        )
+        feedback_writer.writeheader()
+
+        with odometry_path.open("w", newline="") as odometry_file:
+            odometry_writer = csv.DictWriter(
+                odometry_file,
+                fieldnames=[field.name for field in fields(LiveOdometrySample)],
+            )
+            odometry_writer.writeheader()
+
+            try:
+                fd = open_readonly_serial_fd(settings.c30d_port, settings.c30d_baud)
+                while time.monotonic() < deadline:
+                    chunk = os.read(fd, READ_SIZE)
+                    if not chunk:
+                        continue
+
+                    for frame in extract_fixed_frames_from_buffer(buffer, chunk):
+                        candidate = replace(
+                            parse_feedback_candidates([frame])[0],
+                            frame_index=parsed_count,
+                        )
+                        state, odometry = update_live_odometry(
+                            candidate=candidate,
+                            state=state,
+                            forward_m_per_count=calibration.forward_m_per_count,
+                            mode="straight_only",
+                        )
+                        feedback_writer.writerow(asdict(candidate))
+                        odometry_writer.writerow(asdict(odometry))
+                        parsed_count += 1
+            finally:
+                if fd is not None:
+                    os.close(fd)
+
+    return {
+        "feedback_frames": parsed_count,
+        "odometry_rows": parsed_count,
+    }
 
 
 def record_rplidar(settings: RunSettings, run_dir: Path) -> int:
@@ -268,7 +334,7 @@ def record_enabled_sensors(settings: RunSettings, run_dir: Path) -> dict[str, An
     results: dict[str, Any] = {}
     if settings.enable_c30d:
         print("Recording C30D feedback read-only.")
-        results["c30d_frames"] = record_c30d(settings, run_dir)
+        results["c30d"] = record_c30d(settings, run_dir)
     if settings.enable_rplidar:
         print("Recording RPLIDAR scan.")
         results["rplidar_points"] = record_rplidar(settings, run_dir)
