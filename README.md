@@ -107,6 +107,14 @@ Print the current C30D command protocol status:
 
     python scripts/c30d_command_protocol_status.py
 
+Current board identification status: the controller appears to be a WHEELTEC C30D ROS
+bottom-layer controller candidate with STM32F407VET6 MCU, Raspberry Pi / ROS host
+communication on serial port 3, one-key serial download on serial port 1, direct motor
+A/B/C/D interfaces, C30D steering/servo expansion, motor enable switch, 6V-17V power
+input, CAN, PS2/controller, Bluetooth module, and SWD interfaces. The IMU is tracked as
+ICM20948 on the new version or MPU6050 on the old version. This board identification
+does not establish the command protocol; real motor commands remain disabled.
+
 Build a non-transmitting C30D-like command hypothesis frame offline:
 
     python scripts/build_c30d_hypothesis_frame.py 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
@@ -129,6 +137,18 @@ all guards and a valid packet are supplied it still prints `serial_write_allowed
 `real_write_disabled_in_code: true`, and `no bytes sent`. It does not open `/dev/c30d`,
 does not write serial bytes, and must not be used as evidence that a command packet is
 valid.
+
+First write experiment planning:
+
+    docs/c30d_first_write_experiment_plan.md
+
+The first C30D write experiment is not enabled or approved. Any future motor test requires
+an explicit future code change that enables a controlled write path, plus the physical
+safety checklist in the plan: charged battery above warning threshold, wheels lifted,
+robot restrained, manual power cutoff available, read-only preflight PASS, checksum-valid
+packet only, known stop/neutral hypothesis selected, pulse duration under 0.25 seconds,
+and stop/neutral repeated before and after once known. The current blocker is that no
+verified stop/neutral command packet exists.
 
 Summarize saved C30D feedback frame structure from passive `.bin` captures:
 

@@ -44,10 +44,44 @@ research scaffold, not an implementation plan for motor movement.
 - An offline command hypothesis builder exists for constructing C30D-like 24-byte frames
   labeled `unverified_hypothesis`. It is not a command implementation, does not transmit,
   and must not be sent to the C30D.
+- A first write experiment plan exists at `docs/c30d_first_write_experiment_plan.md`, but
+  no write experiment is approved and real serial writing remains disabled.
 
 Architecture reference:
 
     docs/c30d_integrated_architecture.md
+
+## Board identification: WHEELTEC C30D STM32F407VET6 candidate
+
+Board identification evidence currently points to a WHEELTEC C30D ROS bottom-layer
+controller candidate. This identification is useful for vendor-source searching, but it
+does not establish the command protocol and does not make any command packet valid.
+
+Board clues recorded so far:
+
+- Board family appears to be WHEELTEC C30D ROS bottom-layer controller.
+- MCU: STM32F407VET6.
+- Serial port 3 communicates with Raspberry Pi / ROS host.
+- Serial port 1 is used for one-key serial download.
+- Motor A/B/C/D interfaces connect directly to motors.
+- Steering/servo expansion interface is on the C30D.
+- Motor enable switch and 6V-17V power input exist.
+- CAN, PS2/controller, Bluetooth module, and SWD interfaces exist.
+- New version uses ICM20948 IMU, old version uses MPU6050.
+- Current command protocol is still unknown.
+- Real motor command path remains disabled.
+
+Vendor-source search targets:
+
+- WHEELTEC
+- 轮趣科技
+- C30D
+- C10B
+- R550
+- STM32F407VET6
+- ROS bottom controller
+- cmd_vel
+- serial protocol
 
 ## Protocol Evidence Sources
 

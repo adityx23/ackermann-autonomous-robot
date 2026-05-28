@@ -83,3 +83,24 @@ def test_search_roots_combines_matches(tmp_path: Path):
     matches = module.search_roots((tmp_path,))
 
     assert [match.keyword for match in matches] == ["speed", "servo"]
+
+
+def test_default_keywords_include_wheeltec_board_search_terms():
+    module = load_search_script()
+
+    for keyword in (
+        "WHEELTEC",
+        "轮趣",
+        "轮趣科技",
+        "底层主控",
+        "通信协议",
+        "源码",
+        "串口",
+        "C10B",
+        "R550",
+        "STM32F407VET6",
+        "ROS bottom controller",
+        "cmd_vel",
+        "serial protocol",
+    ):
+        assert keyword in module.DEFAULT_KEYWORDS

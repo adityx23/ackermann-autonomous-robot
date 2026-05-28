@@ -8,6 +8,19 @@ from pathlib import Path
 DEFAULT_ROOTS = (Path("external"), Path("docs"), Path("src"), Path("scripts"))
 DEFAULT_KEYWORDS = (
     "c30d",
+    "WHEELTEC",
+    "轮趣",
+    "轮趣科技",
+    "底层主控",
+    "通信协议",
+    "源码",
+    "串口",
+    "C10B",
+    "R550",
+    "STM32F407VET6",
+    "ROS bottom controller",
+    "cmd_vel",
+    "serial protocol",
     "serial.write",
     "motor",
     "steering",
@@ -76,7 +89,9 @@ def line_matches(line: str, keywords: tuple[str, ...] = DEFAULT_KEYWORDS) -> lis
     return [keyword for keyword in keywords if keyword.lower() in lower_line]
 
 
-def search_file(path: Path, keywords: tuple[str, ...] = DEFAULT_KEYWORDS) -> list[ProtocolReferenceMatch]:
+def search_file(
+    path: Path, keywords: tuple[str, ...] = DEFAULT_KEYWORDS
+) -> list[ProtocolReferenceMatch]:
     if not is_probably_text(path):
         return []
 
