@@ -110,20 +110,25 @@ Print the current C30D command protocol status:
 Build a non-transmitting C30D-like command hypothesis frame offline:
 
     python scripts/build_c30d_hypothesis_frame.py 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    python scripts/build_c30d_hypothesis_frame.py --payload-hex "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
 
-The hypothesis builder accepts exactly 21 hex payload bytes for frame bytes 1-21 and
-prints a 24-byte frame shape using `0x7B` start, XOR checksum over bytes 0-21 at byte 22,
-and `0x7D` end. Output is labeled `unverified_hypothesis` with `protocol_known: false`
-and `transmit_allowed: false`. It is offline tooling only: do not send these bytes to the
-C30D.
+The hypothesis builder accepts exactly 21 hex payload bytes for frame bytes 1-21, either
+positionally or through `--payload-hex`, and prints a 24-byte frame shape using `0x7B`
+start, XOR checksum over bytes 0-21 at byte 22, and `0x7D` end. Output is labeled
+`unverified_hypothesis` with `protocol_known: false` and `transmit_allowed: false`. It
+is offline tooling only: do not send these bytes to the C30D.
 
 Summarize saved C30D feedback frame structure from passive `.bin` captures:
 
     python scripts/analyze_c30d_frame_structure.py data/c30d_captures/*.bin
 
 This analyzer prints the observed feedback frame template, checksum rule, candidate
-fields including `candidate_battery_mV` from `uint16_be_20_21`, and unknown byte
-positions. It reads saved files only and does not infer the command protocol.
+fields with per-capture min/max/mean stats, and unknown byte positions excluding bytes
+already covered by candidate fields. Current candidate fields are
+`candidate_forward_motion` from `int16_be_02_03`, `candidate_yaw_motion` from
+`int16_be_06_07`, candidate IMU fields from `int16_be_12_13`, `int16_be_14_15`,
+`int16_be_16_17`, and `int16_be_18_19`, and `candidate_battery_mV` from
+`uint16_be_20_21`. It reads saved files only and does not infer the command protocol.
 
 Search local files for C30D protocol references:
 

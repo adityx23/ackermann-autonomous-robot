@@ -62,14 +62,7 @@ def test_hypothesis_dataclasses_label_outputs_unverified():
     assert hypothesis_frame.checksum == hypothesis_frame.frame[CHECKSUM_INDEX]
 
 
-def test_build_hypothesis_script_output_says_transmit_allowed_false(capsys):
-    module = load_script("build_c30d_hypothesis_frame.py")
-    payload_args = ["00"] * 21
-
-    exit_code = module.main(payload_args)
-
-    output = capsys.readouterr().out
-    assert exit_code == 0
+def assert_hypothesis_script_safety_output(output: str) -> None:
     assert "label: unverified_hypothesis" in output
     assert "full_frame_hex:" in output
     assert "checksum_byte:" in output
@@ -78,16 +71,42 @@ def test_build_hypothesis_script_output_says_transmit_allowed_false(capsys):
     assert "must not be sent to C30D" in output
 
 
-def test_frame_structure_script_prints_feedback_template(tmp_path: Path, capsys):
+def test_build_hypothesis_script_positional_payload_still_works(capsys):
+    module = load_script("build_c30d_hypothesis_frame.py")
+    payload_args = ["00"] * 21
+
+    exit_code = module.main(payload_args)
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert_hypothesis_script_safety_output(output)
+
+
+def test_build_hypothesis_script_payload_hex_option_works(capsys):
+    module = load_script("build_c30d_hypothesis_frame.py")
+    payload_hex = " ".join(["00"] * 21)
+
+    exit_code = module.main(["--payload-hex", payload_hex])
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert_hypothesis_script_safety_output(output)
+
+
+def checked_feedback_frame(overrides: dict[int, int]) -> bytes:
     from ackermann_robot.drivers.c30d_checksum import compute_feedback_checksum
 
-    module = load_script("analyze_c30d_frame_structure.py")
     frame = bytearray([0x7B, *([0x00] * 22), 0x7D])
-    frame[20] = 0x2A
-    frame[21] = 0xF6
+    for position, value in overrides.items():
+        frame[position] = value
     frame[22] = compute_feedback_checksum(frame)
+    return bytes(frame)
+
+
+def test_frame_structure_script_prints_feedback_template(tmp_path: Path, capsys):
+    module = load_script("analyze_c30d_frame_structure.py")
     capture = tmp_path / "capture.bin"
-    capture.write_bytes(bytes(frame))
+    capture.write_bytes(checked_feedback_frame({20: 0x2A, 21: 0xF6}))
 
     exit_code = module.main([str(capture)])
 
@@ -98,6 +117,58 @@ def test_frame_structure_script_prints_feedback_template(tmp_path: Path, capsys)
     assert "byte_23_end: 0x7d" in output
     assert "uint16_be_20_21: candidate_battery_mV" in output
     assert "unknown_bytes:" in output
+
+
+def test_frame_structure_script_reports_all_candidate_fields(tmp_path: Path, capsys):
+    module = load_script("analyze_c30d_frame_structure.py")
+    capture = tmp_path / "capture.bin"
+    capture.write_bytes(
+        checked_feedback_frame(
+            {
+                2: 0x00,
+                3: 0x10,
+                6: 0xFF,
+                7: 0xF0,
+                12: 0x00,
+                13: 0x01,
+                14: 0x00,
+                15: 0x02,
+                16: 0x00,
+                17: 0x03,
+                18: 0x00,
+                19: 0x04,
+                20: 0x2A,
+                21: 0xF6,
+            }
+        )
+    )
+
+    exit_code = module.main([str(capture)])
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "int16_be_02_03: candidate_forward_motion" in output
+    assert "int16_be_06_07: candidate_yaw_motion" in output
+    assert "int16_be_12_13: candidate_imu_12_13" in output
+    assert "int16_be_14_15: candidate_imu_14_15" in output
+    assert "int16_be_16_17: candidate_imu_16_17" in output
+    assert "int16_be_18_19: candidate_imu_18_19" in output
+    assert "uint16_be_20_21: candidate_battery_mV" in output
+    assert "min=" in output
+    assert "max=" in output
+    assert "mean=" in output
+
+
+def test_frame_structure_unknown_bytes_exclude_candidate_field_bytes(tmp_path: Path, capsys):
+    module = load_script("analyze_c30d_frame_structure.py")
+    capture = tmp_path / "capture.bin"
+    capture.write_bytes(checked_feedback_frame({20: 0x2A, 21: 0xF6}))
+
+    exit_code = module.main([str(capture)])
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "unknown_bytes: 1, 4, 5, 8, 9, 10, 11" in output
 
 
 def test_no_serial_write_path_exists_in_hypothesis_lab():

@@ -27,6 +27,14 @@ research scaffold, not an implementation plan for motor movement.
   10200 mV. These thresholds are safety scaffolding around a candidate field, not a
   confirmed C30D battery decoder.
 - Feedback candidate fields exist in the current analysis scripts.
+- Current feedback candidate field map:
+  - `int16_be_02_03`: `candidate_forward_motion`
+  - `int16_be_06_07`: `candidate_yaw_motion`
+  - `int16_be_12_13`: `candidate_imu_12_13`
+  - `int16_be_14_15`: `candidate_imu_14_15`
+  - `int16_be_16_17`: `candidate_imu_16_17`
+  - `int16_be_18_19`: `candidate_imu_18_19`
+  - `uint16_be_20_21`: `candidate_battery_mV`
 - Candidate feedback field names are provisional and not confirmed protocol labels.
 - The C30D command protocol is unknown.
 - C30D command protocol knowledge is required for movement with the current wiring.
@@ -95,6 +103,7 @@ No known-good command packet has been found.
 The repository includes a non-transmitting hypothesis lab for offline byte-shape work:
 
     python scripts/build_c30d_hypothesis_frame.py 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    python scripts/build_c30d_hypothesis_frame.py --payload-hex "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
 
 This builds a 24-byte C30D-like frame with byte 0 set to `0x7B`, bytes 1-21 supplied by
 the caller, byte 22 set to XOR of bytes 0-21, and byte 23 set to `0x7D`. Every output is
@@ -106,8 +115,9 @@ Summarize saved feedback captures into the stable observed frame template:
     python scripts/analyze_c30d_frame_structure.py data/c30d_captures/*.bin
 
 This analyzer reads only saved `.bin` files. It prints the observed feedback start byte,
-checksum rule, end byte, `uint16_be_20_21` as `candidate_battery_mV`, and unknown byte
-positions. It does not infer command fields.
+checksum rule, end byte, the current candidate field map with min/max/mean stats for
+each capture, and unknown payload byte positions excluding bytes already covered by
+candidate fields. It does not infer command fields.
 
 Do not add a hypothesis here unless it is tied to a concrete evidence source such as an
 official manual, vendor example, known driver, or tested demo. Do not infer command bytes

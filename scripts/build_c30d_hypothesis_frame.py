@@ -20,8 +20,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "payload",
-        nargs="+",
-        help="Twenty-one hex payload bytes for frame bytes 1-21, for example: 00 00 ...",
+        nargs="*",
+        help="Twenty-one positional hex payload bytes for frame bytes 1-21.",
+    )
+    parser.add_argument(
+        "--payload-hex",
+        help='Twenty-one hex payload bytes in one string, for example: "00 00 ...".',
     )
     return parser
 
@@ -37,12 +41,22 @@ def parse_hex_payload(tokens: list[str]) -> bytes:
     return bytes(values)
 
 
+def payload_tokens_from_args(args: argparse.Namespace) -> list[str]:
+    if args.payload_hex is not None and args.payload:
+        raise ValueError("use positional payload bytes or --payload-hex, not both")
+    if args.payload_hex is not None:
+        return [args.payload_hex]
+    if args.payload:
+        return args.payload
+    raise ValueError("provide 21 payload bytes positionally or with --payload-hex")
+
+
 def main(argv: list[str] | None = None) -> int:
     from ackermann_robot.drivers.c30d_command_hypotheses import build_command_hypothesis
 
     args = build_parser().parse_args(argv)
     try:
-        payload = parse_hex_payload(args.payload)
+        payload = parse_hex_payload(payload_tokens_from_args(args))
         hypothesis_frame = build_command_hypothesis(payload)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
