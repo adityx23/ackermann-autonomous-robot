@@ -93,8 +93,11 @@ Use explicit device paths:
 The preflight checker reports `/dev/c30d`, `/dev/rplidar`, `data/`, and `data/runs/`
 status, opens C30D read-only when enabled, captures RPLIDAR read-only for a bounded
 duration, and attempts one low-bandwidth RGB-only OAK-D Lite frame. It prints a PASS/FAIL
-summary and returns nonzero if any enabled check fails. It never writes to C30D, never
-sends motor or steering commands, and does not use ROS2.
+summary and returns nonzero if any enabled check fails. For C30D it also reports invalid
+feedback checksum count/percentage and min/mean/max `candidate_battery_mV`. Provisional
+candidate battery thresholds live in `config/battery_safety.yaml`: warn below 10800 mV,
+block motor-test readiness below 10500 mV, and critical below 10200 mV. It never writes
+to C30D, never sends motor or steering commands, and does not use ROS2.
 
 Print the Pi-side command safety and arming status:
 
@@ -127,7 +130,9 @@ Try an unsafe dry-run command and see it rejected/clamped:
 The command safety scaffold is configured by `config/command_safety.yaml`. Dry-run is the
 default, manual enable and wheels-lifted confirmation are required for motor test
 commands, `--require-preflight` can make read-only preflight a dry-run gate, and
-`allow_serial_write` is false. C30D feedback decoding is partially understood as
+`allow_serial_write` is false. When preflight is run, candidate battery warning/block
+reasons are printed and a below-block candidate battery rejects preflight-required
+dry-run command tests. C30D feedback decoding is partially understood as
 read-only candidate fields from the integrated motor/servo/encoder/IMU controller, but
 the real C30D motor/steering command protocol is unknown and not implemented. Because the
 motors and steering servo are wired directly to the C30D, movement requires the C30D

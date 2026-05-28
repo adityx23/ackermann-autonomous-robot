@@ -22,6 +22,10 @@ research scaffold, not an implementation plan for motor movement.
 - Feedback bytes 20-21 interpreted as big-endian uint16 produce values around
   10750-11010 in current captures. Because the 12V battery is connected to the C30D,
   this is tracked as `candidate_battery_mV`, but it is not confirmed as battery voltage.
+- Provisional candidate battery thresholds live in `config/battery_safety.yaml`:
+  warn below 10800 mV, block motor-test readiness below 10500 mV, and critical below
+  10200 mV. These thresholds are safety scaffolding around a candidate field, not a
+  confirmed C30D battery decoder.
 - Feedback candidate fields exist in the current analysis scripts.
 - Candidate feedback field names are provisional and not confirmed protocol labels.
 - The C30D command protocol is unknown.
@@ -76,6 +80,10 @@ analysis, not a confirmed battery-voltage decoder.
 
 The command-packet checksum may use a similar rule, but that is not confirmed. Do not
 apply the feedback checksum rule to commands without command-side evidence.
+
+Pi-side preflight uses checksum validity and `candidate_battery_mV` only for health and
+future motor-test readiness decisions. It does not send commands, and the real movement
+path remains disabled.
 
 ## Command Packet Hypotheses
 

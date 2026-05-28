@@ -74,6 +74,37 @@ def test_frame_rate_handles_elapsed_time():
     assert module.frame_rate(30, 0.0) == 0.0
 
 
+def test_invalid_checksum_percentage_handles_zero_frames():
+    module = load_check_script()
+
+    assert module.invalid_checksum_percentage(0, 3) == 0.0
+    assert module.invalid_checksum_percentage(100, 2) == 2.0
+
+
+def test_battery_threshold_helpers_warn_and_block():
+    module = load_check_script()
+    config = module.BatterySafetyConfig(
+        warn_battery_mV=10800,
+        block_motor_test_battery_mV=10500,
+        critical_battery_mV=10200,
+    )
+
+    warnings, reasons = module.battery_warnings_and_reasons(10750, config)
+    assert warnings == ["candidate_battery_below_warning_threshold"]
+    assert reasons == []
+
+    warnings, reasons = module.battery_warnings_and_reasons(10499, config)
+    assert warnings == []
+    assert reasons == ["candidate_battery_below_motor_test_block_threshold"]
+
+    warnings, reasons = module.battery_warnings_and_reasons(10199, config)
+    assert warnings == []
+    assert reasons == [
+        "candidate_battery_below_critical_threshold",
+        "candidate_battery_below_motor_test_block_threshold",
+    ]
+
+
 def test_valid_lidar_point_count_counts_positive_distances_only():
     module = load_check_script()
 

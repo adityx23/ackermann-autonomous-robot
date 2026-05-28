@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 SCRIPT_ROOT = REPO_ROOT / "scripts"
@@ -25,6 +27,8 @@ DEFAULT_DURATION_S = 3.0
 DEFAULT_C30D_MIN_FRAME_RATE_HZ = 10.0
 DEFAULT_RPLIDAR_MIN_VALID_POINTS = 20
 DEFAULT_PREFLIGHT_DIR = Path("data/preflight")
+DEFAULT_C30D_MAX_INVALID_CHECKSUM_PERCENT = 1.0
+DEFAULT_BATTERY_SAFETY_CONFIG = Path("config/battery_safety.yaml")
 
 
 @dataclass(frozen=True)
@@ -33,6 +37,13 @@ class CheckResult:
     passed: bool
     message: str
     details: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class BatterySafetyConfig:
+    warn_battery_mV: int = 10800
+    block_motor_test_battery_mV: int = 10500
+    critical_battery_mV: int = 10200
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -75,6 +86,57 @@ def valid_lidar_point_count(points: list[Any]) -> int:
     return sum(1 for point in points if getattr(point, "distance_mm", 0.0) > 0.0)
 
 
+def load_battery_safety_config(
+    config_path: Path = DEFAULT_BATTERY_SAFETY_CONFIG,
+) -> BatterySafetyConfig:
+    if not config_path.is_file():
+        return BatterySafetyConfig()
+    loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    if not isinstance(loaded, dict):
+        raise ValueError(f"battery safety config must contain a mapping: {config_path}")
+    data = loaded.get("battery_safety")
+    if not isinstance(data, dict):
+        raise ValueError(f"missing battery_safety section: {config_path}")
+    return BatterySafetyConfig(
+        warn_battery_mV=int(data.get("warn_battery_mV", 10800)),
+        block_motor_test_battery_mV=int(data.get("block_motor_test_battery_mV", 10500)),
+        critical_battery_mV=int(data.get("critical_battery_mV", 10200)),
+    )
+
+
+def invalid_checksum_percentage(frame_count: int, invalid_checksum_count: int) -> float:
+    if frame_count <= 0:
+        return 0.0
+    return 100.0 * invalid_checksum_count / frame_count
+
+
+def numeric_stats(values: list[int]) -> dict[str, float | int | None]:
+    if not values:
+        return {"min": None, "mean": None, "max": None}
+    return {
+        "min": min(values),
+        "mean": sum(values) / len(values),
+        "max": max(values),
+    }
+
+
+def battery_warnings_and_reasons(
+    candidate_battery_mV: float | int | None,
+    config: BatterySafetyConfig,
+) -> tuple[list[str], list[str]]:
+    warnings: list[str] = []
+    reasons: list[str] = []
+    if candidate_battery_mV is None:
+        return warnings, reasons
+    if candidate_battery_mV < config.critical_battery_mV:
+        reasons.append("candidate_battery_below_critical_threshold")
+    if candidate_battery_mV < config.block_motor_test_battery_mV:
+        reasons.append("candidate_battery_below_motor_test_block_threshold")
+    elif candidate_battery_mV < config.warn_battery_mV:
+        warnings.append("candidate_battery_below_warning_threshold")
+    return warnings, reasons
+
+
 def timestamped_path(directory: Path, stem: str, suffix: str, now: datetime | None = None) -> Path:
     timestamp = (now or datetime.now()).strftime("%Y%m%d_%H%M%S")
     return directory / f"{stem}_{timestamp}{suffix}"
@@ -97,6 +159,8 @@ def check_c30d_readonly(
     duration_s: float,
     baud: int = DEFAULT_C30D_BAUD,
     min_frame_rate_hz: float = DEFAULT_C30D_MIN_FRAME_RATE_HZ,
+    max_invalid_checksum_percent: float = DEFAULT_C30D_MAX_INVALID_CHECKSUM_PERCENT,
+    battery_config: BatterySafetyConfig | None = None,
 ) -> CheckResult:
     from ackermann_robot.drivers.c30d_feedback import parse_feedback_candidates
     from monitor_c30d_feedback_readonly import (
@@ -107,6 +171,8 @@ def check_c30d_readonly(
 
     buffer = bytearray()
     parsed_count = 0
+    invalid_checksum_count = 0
+    candidate_battery_values: list[int] = []
     start_s = time.monotonic()
     deadline_s = start_s + duration_s
     fd: int | None = None
@@ -118,15 +184,23 @@ def check_c30d_readonly(
             if not chunk:
                 continue
             for frame in extract_fixed_frames_from_buffer(buffer, chunk):
-                parse_feedback_candidates([frame])
+                candidate = parse_feedback_candidates([frame])[0]
                 parsed_count += 1
+                if not candidate.checksum_valid:
+                    invalid_checksum_count += 1
+                candidate_battery_values.append(candidate.candidate_battery_mV)
     except Exception as exc:
         elapsed_s = max(time.monotonic() - start_s, 0.0)
         return CheckResult(
             name="c30d",
             passed=False,
             message=f"read-only C30D check failed: {exc}",
-            details={"frame_count": parsed_count, "elapsed_s": elapsed_s, "frame_rate_hz": 0.0},
+            details={
+                "frame_count": parsed_count,
+                "elapsed_s": elapsed_s,
+                "frame_rate_hz": 0.0,
+                "invalid_checksum_count": invalid_checksum_count,
+            },
         )
     finally:
         if fd is not None:
@@ -134,19 +208,48 @@ def check_c30d_readonly(
 
     elapsed_s = max(time.monotonic() - start_s, 0.0)
     rate_hz = frame_rate(parsed_count, elapsed_s)
-    passed = rate_hz >= min_frame_rate_hz
+    invalid_percent = invalid_checksum_percentage(parsed_count, invalid_checksum_count)
+    battery_stats = numeric_stats(candidate_battery_values)
+    battery_config = battery_config or load_battery_safety_config()
+    battery_warnings, battery_block_reasons = battery_warnings_and_reasons(
+        battery_stats["min"],
+        battery_config,
+    )
+    passed = (
+        rate_hz >= min_frame_rate_hz
+        and invalid_percent <= max_invalid_checksum_percent
+        and not battery_block_reasons
+    )
     return CheckResult(
         name="c30d",
         passed=passed,
         message=(
             f"frames={parsed_count} frame_rate_hz={rate_hz:.2f} "
-            f"threshold_hz={min_frame_rate_hz:.2f}"
+            f"threshold_hz={min_frame_rate_hz:.2f} "
+            f"invalid_checksum_count={invalid_checksum_count} "
+            f"invalid_checksum_percent={invalid_percent:.2f} "
+            f"candidate_battery_mV_min={battery_stats['min']} "
+            f"candidate_battery_mV_mean={battery_stats['mean']} "
+            f"candidate_battery_mV_max={battery_stats['max']}"
         ),
         details={
             "frame_count": parsed_count,
             "elapsed_s": elapsed_s,
             "frame_rate_hz": rate_hz,
             "threshold_hz": min_frame_rate_hz,
+            "invalid_checksum_count": invalid_checksum_count,
+            "invalid_checksum_percent": invalid_percent,
+            "max_invalid_checksum_percent": max_invalid_checksum_percent,
+            "candidate_battery_mV_min": battery_stats["min"],
+            "candidate_battery_mV_mean": battery_stats["mean"],
+            "candidate_battery_mV_max": battery_stats["max"],
+            "battery_warning_reasons": tuple(battery_warnings),
+            "battery_block_reasons": tuple(battery_block_reasons),
+            "battery_thresholds_provisional": {
+                "warn_battery_mV": battery_config.warn_battery_mV,
+                "block_motor_test_battery_mV": battery_config.block_motor_test_battery_mV,
+                "critical_battery_mV": battery_config.critical_battery_mV,
+            },
         },
     )
 
@@ -223,6 +326,10 @@ def check_oak_capture(output_dir: Path = DEFAULT_PREFLIGHT_DIR) -> CheckResult:
 
 def print_result(result: CheckResult) -> None:
     print(f"{status_text(result.passed)} {result.name}: {result.message}")
+    for warning in result.details.get("battery_warning_reasons", ()):
+        print(f"  WARN {warning}")
+    for reason in result.details.get("battery_block_reasons", ()):
+        print(f"  BLOCK {reason}")
 
 
 def print_summary(results: list[CheckResult]) -> None:
@@ -233,7 +340,7 @@ def print_summary(results: list[CheckResult]) -> None:
     print(f"overall: {status_text(overall)}")
 
 
-def run_preflight(args: argparse.Namespace) -> int:
+def run_preflight_checks(args: argparse.Namespace) -> list[CheckResult]:
     validate_args(args)
     results: list[CheckResult] = [
         check_directory("data", Path("data")),
@@ -249,6 +356,11 @@ def run_preflight(args: argparse.Namespace) -> int:
     if args.check_oak:
         results.append(check_oak_capture())
 
+    return results
+
+
+def run_preflight(args: argparse.Namespace) -> int:
+    results = run_preflight_checks(args)
     print_summary(results)
     return 0 if all(result.passed for result in results) else 1
 

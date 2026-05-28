@@ -228,6 +228,7 @@ def record_c30d(settings: RunSettings, run_dir: Path) -> dict[str, int]:
 
     parsed_count = 0
     invalid_checksum_count = 0
+    candidate_battery_values: list[int] = []
     state = LiveOdometryState()
     buffer = bytearray()
     deadline = time.monotonic() + settings.duration_s
@@ -261,6 +262,7 @@ def record_c30d(settings: RunSettings, run_dir: Path) -> dict[str, int]:
                         )
                         if not candidate.checksum_valid:
                             invalid_checksum_count += 1
+                        candidate_battery_values.append(candidate.candidate_battery_mV)
                         state, odometry = update_live_odometry(
                             candidate=candidate,
                             state=state,
@@ -274,10 +276,20 @@ def record_c30d(settings: RunSettings, run_dir: Path) -> dict[str, int]:
                 if fd is not None:
                     os.close(fd)
 
+    candidate_battery_min = min(candidate_battery_values) if candidate_battery_values else None
+    candidate_battery_mean = (
+        sum(candidate_battery_values) / len(candidate_battery_values)
+        if candidate_battery_values
+        else None
+    )
+    candidate_battery_max = max(candidate_battery_values) if candidate_battery_values else None
     return {
         "feedback_frames": parsed_count,
         "odometry_rows": parsed_count,
         "invalid_checksum_frames": invalid_checksum_count,
+        "candidate_battery_mV_min": candidate_battery_min,
+        "candidate_battery_mV_mean": candidate_battery_mean,
+        "candidate_battery_mV_max": candidate_battery_max,
     }
 
 

@@ -173,6 +173,44 @@ def test_dry_run_drive_command_allows_required_preflight_when_run_preflight_pass
     assert "safety_allowed: True" in output
 
 
+def test_dry_run_drive_command_rejects_required_preflight_when_battery_blocks(
+    monkeypatch, tmp_path: Path, capsys
+):
+    module = load_dry_run_script()
+    config_path = tmp_path / "command_safety.yaml"
+    write_command_safety_config(config_path)
+    monkeypatch.setattr(
+        module,
+        "run_preflight",
+        lambda duration_s: module.PreflightStatus(
+            passed=False,
+            candidate_battery_mV=10490,
+            reasons=("candidate_battery_below_motor_test_block_threshold",),
+        ),
+    )
+
+    exit_code = module.main(
+        [
+            "--speed-mps",
+            "0.1",
+            "--duration",
+            "1.0",
+            "--manual-enable",
+            "--wheels-lifted",
+            "--require-preflight",
+            "--run-preflight",
+            "--config",
+            str(config_path),
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "candidate_battery_mV: 10490" in output
+    assert "candidate_battery_below_motor_test_block_threshold" in output
+    assert "preflight_required" in output
+
+
 def test_dry_run_drive_command_does_not_open_serial(monkeypatch, tmp_path: Path):
     module = load_dry_run_script()
     config_path = tmp_path / "command_safety.yaml"

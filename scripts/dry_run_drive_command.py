@@ -4,7 +4,9 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
@@ -48,12 +50,46 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run_preflight(duration_s: float) -> bool:
+@dataclass(frozen=True)
+class PreflightStatus:
+    passed: bool
+    candidate_battery_mV: float | int | None = None
+    warnings: tuple[str, ...] = ()
+    reasons: tuple[str, ...] = ()
+
+
+def preflight_status_from_results(results: list[Any]) -> PreflightStatus:
+    c30d = next((result for result in results if getattr(result, "name", None) == "c30d"), None)
+    warnings: list[str] = []
+    reasons: list[str] = []
+    candidate_battery_mV = None
+    if c30d is not None:
+        details = getattr(c30d, "details", {})
+        candidate_battery_mV = details.get("candidate_battery_mV_mean")
+        warnings.extend(details.get("battery_warning_reasons", ()))
+        reasons.extend(details.get("battery_block_reasons", ()))
+    return PreflightStatus(
+        passed=all(result.passed for result in results),
+        candidate_battery_mV=candidate_battery_mV,
+        warnings=tuple(warnings),
+        reasons=tuple(reasons),
+    )
+
+
+def coerce_preflight_status(value: bool | PreflightStatus) -> PreflightStatus:
+    if isinstance(value, PreflightStatus):
+        return value
+    return PreflightStatus(passed=bool(value))
+
+
+def run_preflight(duration_s: float) -> PreflightStatus:
     from check_robot_sensors import build_parser as build_preflight_parser
-    from check_robot_sensors import run_preflight as run_sensor_preflight
+    from check_robot_sensors import print_summary, run_preflight_checks
 
     args = build_preflight_parser().parse_args(["--duration", str(duration_s)])
-    return run_sensor_preflight(args) == 0
+    results = run_preflight_checks(args)
+    print_summary(results)
+    return preflight_status_from_results(results)
 
 
 def run_dry_command(args: argparse.Namespace) -> int:
@@ -91,7 +127,12 @@ def run_dry_command(args: argparse.Namespace) -> int:
     command_was_clamped = (
         filtered.speed_mps != command.speed_mps or filtered.steering_deg != command.steering_deg
     )
-    preflight_passed = run_preflight(args.preflight_duration) if args.run_preflight else False
+    preflight = (
+        coerce_preflight_status(run_preflight(args.preflight_duration))
+        if args.run_preflight
+        else PreflightStatus(passed=False)
+    )
+    preflight_passed = preflight.passed
     state = ArmingState(
         preflight_passed=preflight_passed,
         manual_enable=args.manual_enable,
@@ -118,6 +159,15 @@ def run_dry_command(args: argparse.Namespace) -> int:
     print("DRY-RUN drive command only. No serial port is opened. No bytes are written.")
     print(f"require_preflight: {args.require_preflight}")
     print(f"preflight_passed: {preflight_passed}")
+    print(f"candidate_battery_mV: {preflight.candidate_battery_mV}")
+    print(
+        "preflight_battery_warnings: "
+        f"{', '.join(preflight.warnings) if preflight.warnings else 'none'}"
+    )
+    print(
+        "preflight_battery_block_reasons: "
+        f"{', '.join(preflight.reasons) if preflight.reasons else 'none'}"
+    )
     print(f"requested_speed_mps: {command.speed_mps}")
     print(f"requested_steering_deg: {command.steering_deg}")
     print(f"requested_duration_s: {args.duration}")

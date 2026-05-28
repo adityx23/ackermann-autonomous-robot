@@ -48,11 +48,21 @@ def test_robot_safety_status_prints_preflight_result(monkeypatch, tmp_path: Path
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(module, "run_preflight", lambda duration_s: True)
+    monkeypatch.setattr(
+        module,
+        "run_preflight",
+        lambda duration_s: module.PreflightStatus(
+            passed=True,
+            candidate_battery_mV=10750,
+            warnings=("candidate_battery_below_warning_threshold",),
+        ),
+    )
 
     exit_code = module.main(["--config", str(config_path), "--run-preflight"])
 
     output = capsys.readouterr().out
     assert exit_code == 0
     assert "preflight_passed: True" in output
+    assert "candidate_battery_mV: 10750" in output
+    assert "candidate_battery_below_warning_threshold" in output
     assert "real_motor_command_path: disabled" in output

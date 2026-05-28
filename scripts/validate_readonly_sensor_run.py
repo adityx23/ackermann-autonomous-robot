@@ -33,6 +33,10 @@ class CsvSummary:
     lidar_max_distance: float | None = None
     lidar_zero_distance_count: int | None = None
     lidar_nonpositive_distance_count: int | None = None
+    invalid_checksum_count: int | None = None
+    candidate_battery_mV_min: float | None = None
+    candidate_battery_mV_mean: float | None = None
+    candidate_battery_mV_max: float | None = None
 
 
 @dataclass(frozen=True)
@@ -98,6 +102,8 @@ def summarize_csv(path: Path) -> CsvSummary:
         timestamp_column = first_existing_column(columns, TIMESTAMP_COLUMNS)
         frame_index_column = first_existing_column(columns, FRAME_INDEX_COLUMNS)
         distance_column = first_existing_column(columns, ("distance_mm", "distance_m"))
+        checksum_valid_column = first_existing_column(columns, ("checksum_valid",))
+        candidate_battery_column = first_existing_column(columns, ("candidate_battery_mV",))
 
         row_count = 0
         first_row: dict[str, str] | None = None
@@ -106,6 +112,8 @@ def summarize_csv(path: Path) -> CsvSummary:
         max_distance: float | None = None
         zero_distance_count = 0
         nonpositive_distance_count = 0
+        invalid_checksum_count = 0
+        candidate_battery_values: list[float] = []
 
         for row in reader:
             if first_row is None:
@@ -122,6 +130,14 @@ def summarize_csv(path: Path) -> CsvSummary:
                         zero_distance_count += 1
                     if distance <= 0.0:
                         nonpositive_distance_count += 1
+            if checksum_valid_column is not None:
+                checksum_valid = (row.get(checksum_valid_column) or "").strip().lower()
+                if checksum_valid not in {"true", "1", "yes"}:
+                    invalid_checksum_count += 1
+            if candidate_battery_column is not None:
+                candidate_battery = optional_float(row.get(candidate_battery_column))
+                if candidate_battery is not None:
+                    candidate_battery_values.append(candidate_battery)
 
     final_odometry = None
     if last_row is not None and {"x_m", "y_m", "theta_rad"}.issubset(columns):
@@ -134,6 +150,14 @@ def summarize_csv(path: Path) -> CsvSummary:
     lidar_point_count = None
     if distance_column is not None:
         lidar_point_count = row_count
+
+    candidate_battery_mV_min = None
+    candidate_battery_mV_mean = None
+    candidate_battery_mV_max = None
+    if candidate_battery_values:
+        candidate_battery_mV_min = min(candidate_battery_values)
+        candidate_battery_mV_mean = sum(candidate_battery_values) / len(candidate_battery_values)
+        candidate_battery_mV_max = max(candidate_battery_values)
 
     first_timestamp = first_row.get(timestamp_column) if first_row and timestamp_column else None
     last_timestamp = last_row.get(timestamp_column) if last_row and timestamp_column else None
@@ -164,6 +188,12 @@ def summarize_csv(path: Path) -> CsvSummary:
         lidar_nonpositive_distance_count=(
             nonpositive_distance_count if distance_column is not None else None
         ),
+        invalid_checksum_count=(
+            invalid_checksum_count if checksum_valid_column is not None else None
+        ),
+        candidate_battery_mV_min=candidate_battery_mV_min,
+        candidate_battery_mV_mean=candidate_battery_mV_mean,
+        candidate_battery_mV_max=candidate_battery_mV_max,
     )
 
 
@@ -200,6 +230,15 @@ def print_csv_summary(summary: CsvSummary) -> None:
     if summary.final_odometry is not None:
         x_m, y_m, theta_rad = summary.final_odometry
         print(f"  final_odometry: x_m={x_m}, y_m={y_m}, theta_rad={theta_rad}")
+    if summary.invalid_checksum_count is not None:
+        print(f"  invalid_checksum_count: {summary.invalid_checksum_count}")
+    if summary.candidate_battery_mV_min is not None:
+        print(
+            "  candidate_battery_mV: "
+            f"min={summary.candidate_battery_mV_min:g}, "
+            f"mean={summary.candidate_battery_mV_mean:g}, "
+            f"max={summary.candidate_battery_mV_max:g}"
+        )
     if summary.lidar_point_count is not None:
         print(f"  point_count: {summary.lidar_point_count}")
         if summary.lidar_min_distance is not None and summary.lidar_max_distance is not None:

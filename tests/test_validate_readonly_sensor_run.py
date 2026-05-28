@@ -38,9 +38,9 @@ def test_validate_run_folder_summarizes_complete_run(tmp_path: Path, capsys):
     (run_dir / "c30d_feedback.csv").write_text(
         "\n".join(
             [
-                "frame_index,candidate_forward_motion",
-                "0,10",
-                "1,11",
+                "frame_index,candidate_forward_motion,checksum_valid,candidate_battery_mV",
+                "0,10,true,10736",
+                "1,11,false,10754",
             ]
         ),
         encoding="utf-8",
@@ -77,6 +77,8 @@ def test_validate_run_folder_summarizes_complete_run(tmp_path: Path, capsys):
     assert "rows: 2" in captured.out
     assert "first_frame_index: 0" in captured.out
     assert "last_frame_index: 1" in captured.out
+    assert "invalid_checksum_count: 1" in captured.out
+    assert "candidate_battery_mV: min=10736, mean=10745, max=10754" in captured.out
     assert "final_odometry: x_m=0.3, y_m=0.1, theta_rad=0.02" in captured.out
     assert "point_count: 2" in captured.out
     assert "timestamp_duration_s: 0.1" in captured.out
