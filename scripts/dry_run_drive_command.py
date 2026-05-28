@@ -63,6 +63,10 @@ def run_dry_command(args: argparse.Namespace) -> int:
         load_command_safety_config,
     )
     from ackermann_robot.control.command_filter import CommandFilter, CommandLimits
+    from ackermann_robot.drivers.c30d_commands import (
+        C30DCommandCandidate,
+        build_dry_run_command_packet,
+    )
     from ackermann_robot.messages import DriveCommand, SafetyStatus
 
     config = load_command_safety_config(args.config)
@@ -103,6 +107,13 @@ def run_dry_command(args: argparse.Namespace) -> int:
         command_was_clamped=command_was_clamped,
         require_preflight=args.require_preflight,
     )
+    c30d_command = C30DCommandCandidate(
+        speed_mps=filtered.speed_mps,
+        steering_deg=filtered.steering_deg,
+        duration_s=args.duration,
+        source=command.source,
+    )
+    packet = build_dry_run_command_packet(c30d_command)
 
     print("DRY-RUN drive command only. No serial port is opened. No bytes are written.")
     print(f"require_preflight: {args.require_preflight}")
@@ -117,6 +128,9 @@ def run_dry_command(args: argparse.Namespace) -> int:
     print(f"safety_reasons: {', '.join(gate.reasons) if gate.reasons else 'ok'}")
     print(f"safety_warnings: {', '.join(gate.warnings) if gate.warnings else 'none'}")
     print(f"serial_write_allowed: {gate.serial_write_allowed}")
+    print(f"c30d_protocol_known: {packet.protocol_known}")
+    print(f"c30d_packet_hex: {packet.packet_hex}")
+    print(f"c30d_packet_notes: {packet.notes}")
     print("would_send: disabled_real_c30d_protocol_not_implemented")
     return 0 if gate.allowed else 1
 

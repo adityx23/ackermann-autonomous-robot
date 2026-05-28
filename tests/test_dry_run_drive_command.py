@@ -61,6 +61,9 @@ def test_dry_run_drive_command_allows_safe_dry_run(tmp_path: Path, capsys):
     assert exit_code == 0
     assert "safety_allowed: True" in output
     assert "serial_write_allowed: False" in output
+    assert "c30d_protocol_known: False" in output
+    assert "c30d_packet_hex: UNIMPLEMENTED" in output
+    assert "Real C30D motor/steering command protocol is not implemented" in output
     assert "would_send: disabled_real_c30d_protocol_not_implemented" in output
 
 

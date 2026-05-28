@@ -94,6 +94,10 @@ Print the Pi-side command safety and arming status:
 
     python scripts/robot_safety_status.py
 
+Print the current C30D command protocol status:
+
+    python scripts/c30d_command_protocol_status.py
+
 Run the read-only sensor preflight as part of the status report:
 
     python scripts/robot_safety_status.py --run-preflight --preflight-duration 3
@@ -113,9 +117,13 @@ Try an unsafe dry-run command and see it rejected/clamped:
 The command safety scaffold is configured by `config/command_safety.yaml`. Dry-run is the
 default, manual enable and wheels-lifted confirmation are required for motor test
 commands, `--require-preflight` can make read-only preflight a dry-run gate, and
-`allow_serial_write` is false. The real C30D motor/steering command protocol is not
-implemented yet; these scripts do not open `/dev/c30d` for commands, do not write serial
-bytes, and do not move motors or steering.
+`allow_serial_write` is false. C30D feedback decoding is partially understood as
+read-only candidate fields, but the real C30D motor/steering command protocol is unknown
+and not implemented. `dry_run_drive_command.py` builds only a placeholder packet marked
+`UNIMPLEMENTED`; it does not contain real bytes and must not be transmitted. Real motor
+commands are blocked until official C30D command documentation or known-good command
+examples are available. These scripts do not open `/dev/c30d` for commands, do not write
+serial bytes, and do not move motors or steering.
 
 Capture a short finite RPLIDAR C1 scan sample with the SLAMTEC SDK backend:
 
