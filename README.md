@@ -143,8 +143,8 @@ Run the guarded future C30D write-test harness without transmitting anything:
     python scripts/c30d_write_test_harness.py --armed --wheels-lifted --manual-enable --i-understand-risk --packet-hex "7b 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 7b 7d"
 
 Strong warning: this harness is not an enabled write path. It validates only supplied
-packet shapes: old 24-byte feedback-like hypotheses and documented-candidate 11-byte ROS
-command frames. Default behavior refuses to run, all guard flags are required, and even
+packet shapes: old 24-byte feedback-like hypotheses and documented-candidate 11-byte native
+host command frames. Default behavior refuses to run, all guard flags are required, and even
 when all guards and a valid packet shape are supplied it still prints
 `serial_write_allowed: false`, `real_write_disabled_in_code: true`, and `no bytes sent`.
 It does not open `/dev/c30d`, does not write serial bytes, and must not be used as
@@ -153,6 +153,16 @@ evidence that a command packet is valid.
 First write experiment planning:
 
     docs/c30d_first_write_experiment_plan.md
+
+Check first-write readiness without transmitting anything:
+
+    python scripts/c30d_first_write_readiness.py --wheels-lifted --robot-restrained --manual-power-cutoff-ready --motor-enable-switch-reviewed --i-understand-this-is-not-a-motor-test --c30d-only-preflight
+
+The readiness checker runs or consumes read-only preflight results, builds the native zero
+host command frame internally, validates its 11-byte shape and checksum, reports the
+candidate battery voltage, and prints `real_write_enabled: false` plus `no bytes sent`.
+Readiness fails if the candidate battery voltage is below the warning threshold. It does
+not open a write path and does not move motors or steering.
 
 The first C30D write experiment is not enabled or approved. Any future motor test requires
 an explicit future code change that enables a controlled write path, plus the physical
