@@ -72,6 +72,24 @@ Capture one OAK-D Lite RGB frame plus a raw depth frame when stereo depth is ava
 The OAK capture saves files under `data/oak_tests/`. RGB is saved as `.png`; depth is
 saved as a raw NumPy `.npy` array in millimeters for later processing.
 
+Run a native read-only sensor preflight check:
+
+    python scripts/check_robot_sensors.py
+
+Run only selected checks for a shorter hardware smoke test:
+
+    python scripts/check_robot_sensors.py --duration 3 --check-c30d --no-check-rplidar --no-check-oak
+
+Use explicit device paths:
+
+    python scripts/check_robot_sensors.py --c30d-port /dev/c30d --rplidar-port /dev/rplidar
+
+The preflight checker reports `/dev/c30d`, `/dev/rplidar`, `data/`, and `data/runs/`
+status, opens C30D read-only when enabled, captures RPLIDAR read-only for a bounded
+duration, and attempts one low-bandwidth RGB-only OAK-D Lite frame. It prints a PASS/FAIL
+summary and returns nonzero if any enabled check fails. It never writes to C30D, never
+sends motor or steering commands, and does not use ROS2.
+
 Capture a short finite RPLIDAR C1 scan sample with the SLAMTEC SDK backend:
 
     python scripts/rplidar_scan_sample.py --backend sdk --port /dev/rplidar --baud 460800 --duration 5
