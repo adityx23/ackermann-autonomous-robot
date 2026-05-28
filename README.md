@@ -234,6 +234,26 @@ absolute sum, and nonzero count. Optional calibration outputs are
 `meters_per_forward_sum` and `radians_per_yaw_sum`; they are helper ratios for candidate
 field analysis only, not confirmed controller units.
 
+Replay provisional offline C30D dead-reckoning odometry from an exported feedback CSV:
+
+    python scripts/replay_c30d_odometry.py data/c30d_analysis/motion_feedback_candidates.csv --mode straight_only
+
+Preserve raw yaw candidate counts for later calibration analysis:
+
+    python scripts/replay_c30d_odometry.py data/c30d_analysis/motion_feedback_candidates.csv --mode raw_yaw_candidate
+
+Use a different provisional calibration file or output directory:
+
+    python scripts/replay_c30d_odometry.py data/c30d_analysis/motion_feedback_candidates.csv --config config/c30d_calibration.yaml --output-dir data/c30d_analysis
+
+The odometry replay is offline, read-only, and provisional. It reads exported feedback
+candidate CSV files, loads `config/c30d_calibration.yaml`, converts
+`candidate_forward_motion` to `delta_s_m` with `forward_m_per_count`, and writes odometry
+CSV files under `data/c30d_analysis/` by default. Because `yaw_rad_per_count` is still
+null, `straight_only` assumes zero yaw change and `raw_yaw_candidate` preserves raw
+`candidate_yaw_motion` counts without converting them to radians. `theta_rad` remains
+unchanged until yaw calibration is available.
+
 ## Logs
 
 Use `setup_logging()` from `ackermann_robot.utils.logging_utils` to create a timestamped
