@@ -215,6 +215,25 @@ candidate names only: `candidate_forward_motion` from bytes `02_03`,
 `14_15`, `16_17`, and `18_19`, plus `checksum_candidate` from byte `22`.
 These names reflect current hand-spin observations and are not confirmed protocol fields.
 
+Summarize one or more exported feedback candidate CSV files:
+
+    python scripts/summarize_c30d_feedback_candidates.py data/c30d_analysis/motion_feedback_candidates.csv
+
+Estimate sample rate from a known capture duration:
+
+    python scripts/summarize_c30d_feedback_candidates.py data/c30d_analysis/motion_feedback_candidates.csv --duration-s 5
+
+Compute candidate calibration helpers from a known distance or yaw motion:
+
+    python scripts/summarize_c30d_feedback_candidates.py data/c30d_analysis/forward_feedback_candidates.csv --known-distance-m 1.0
+    python scripts/summarize_c30d_feedback_candidates.py data/c30d_analysis/yaw_feedback_candidates.csv --known-yaw-deg 90
+
+The summary helper reads only exported CSV files and uses the standard library CSV parser.
+For each candidate motion field it prints min, max, mean, standard deviation, sum,
+absolute sum, and nonzero count. Optional calibration outputs are
+`meters_per_forward_sum` and `radians_per_yaw_sum`; they are helper ratios for candidate
+field analysis only, not confirmed controller units.
+
 ## Logs
 
 Use `setup_logging()` from `ackermann_robot.utils.logging_utils` to create a timestamped
