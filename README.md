@@ -90,6 +90,28 @@ duration, and attempts one low-bandwidth RGB-only OAK-D Lite frame. It prints a 
 summary and returns nonzero if any enabled check fails. It never writes to C30D, never
 sends motor or steering commands, and does not use ROS2.
 
+Print the Pi-side command safety and arming status:
+
+    python scripts/robot_safety_status.py
+
+Run the read-only sensor preflight as part of the status report:
+
+    python scripts/robot_safety_status.py --run-preflight --preflight-duration 3
+
+Evaluate a future drive command through the dry-run safety gate:
+
+    python scripts/dry_run_drive_command.py --speed-mps 0.1 --steering-deg 5 --duration 1 --manual-enable --wheels-lifted
+
+Try an unsafe dry-run command and see it rejected/clamped:
+
+    python scripts/dry_run_drive_command.py --speed-mps 0.8 --steering-deg 5 --duration 1 --manual-enable --wheels-lifted
+
+The command safety scaffold is configured by `config/command_safety.yaml`. Dry-run is the
+default, manual enable and wheels-lifted confirmation are required for motor test
+commands, and `allow_serial_write` is false. The real C30D motor/steering command
+protocol is not implemented yet; these scripts do not open `/dev/c30d`, do not write
+serial bytes, and do not move motors or steering.
+
 Capture a short finite RPLIDAR C1 scan sample with the SLAMTEC SDK backend:
 
     python scripts/rplidar_scan_sample.py --backend sdk --port /dev/rplidar --baud 460800 --duration 5

@@ -1,0 +1,7 @@
+command_safety:
+  dry_run_default: true
+  require_manual_enable: true
+  require_wheels_lifted_for_motor_test: true
+  max_test_speed_mps: 0.2
+  max_test_duration_s: 2.0
+  allow_serial_write: false
