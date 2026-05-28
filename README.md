@@ -338,6 +338,16 @@ file sizes. For RPLIDAR CSVs it also prints timestamp duration, warns when multi
 share one constant timestamp, and reports zero and nonpositive `distance_mm` points. It
 exits nonzero only when data is missing for a sensor that was enabled in `metadata.yaml`.
 
+Replay and summarize a saved unified read-only sensor run without touching hardware:
+
+    python scripts/replay_readonly_sensor_run.py data/runs/run_YYYYMMDD_HHMMSS
+
+The replay tool validates the saved run folder, writes outputs under
+`replay_outputs/`, plots C30D odometry when `c30d_odometry.csv` exists, plots RPLIDAR XY
+points, builds a ray-traced occupancy grid from valid `distance_mm > 0` lidar points, and
+prints OAK RGB image paths. Its summary includes enabled sensors, C30D row count, final
+odometry, lidar total/valid/zero-distance counts, and OAK image count.
+
 ## Logs
 
 Use `setup_logging()` from `ackermann_robot.utils.logging_utils` to create a timestamped
