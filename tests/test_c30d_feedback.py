@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from ackermann_robot.drivers.c30d_checksum import compute_feedback_checksum
 from ackermann_robot.drivers.c30d_feedback import parse_feedback_candidates
 from ackermann_robot.drivers.c30d_frames import FRAME_LENGTH
 
@@ -44,7 +45,18 @@ def test_parse_feedback_candidates_decodes_named_candidate_fields():
     assert candidate.candidate_imu_16_17 == 1
     assert candidate.candidate_imu_18_19 == -1
     assert candidate.checksum_candidate == 0xA5
+    assert candidate.checksum_valid is False
     assert candidate.raw_frame_hex == frame.hex(" ")
+
+
+def test_parse_feedback_candidates_marks_valid_checksum():
+    frame = bytearray(make_frame({2: 0x00, 3: 0x01}))
+    frame[22] = compute_feedback_checksum(frame)
+
+    parsed = parse_feedback_candidates([bytes(frame)])
+
+    assert parsed[0].checksum_candidate == frame[22]
+    assert parsed[0].checksum_valid is True
 
 
 def test_parse_feedback_candidates_uses_zero_based_frame_index():

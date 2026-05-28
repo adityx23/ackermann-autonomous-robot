@@ -7,7 +7,9 @@ from ackermann_robot.drivers.c30d_frames import (
     extract_delimited_frames,
     extract_frames,
     extract_frames_with_stats,
+    filter_frames_by_checksum,
     frame_length_distribution,
+    has_valid_checksum,
     repeated_frame_patterns,
     summarize_frames,
 )
@@ -18,6 +20,14 @@ def make_frame(fill: int, overrides: dict[int, int] | None = None) -> bytes:
     for position, value in (overrides or {}).items():
         frame[position] = value
     return bytes(frame)
+
+
+def with_feedback_checksum(frame: bytes) -> bytes:
+    from ackermann_robot.drivers.c30d_checksum import compute_feedback_checksum
+
+    checked = bytearray(frame)
+    checked[22] = compute_feedback_checksum(checked)
+    return bytes(checked)
 
 
 def test_extract_frames_uses_fixed_24_byte_frames():
@@ -56,6 +66,16 @@ def test_invalid_end_byte_is_rejected_and_resyncs():
     assert extraction.frames == [valid]
     assert extraction.rejected_resync_count == 1
     assert extraction.partial_frame_count == 0
+
+
+def test_checksum_filter_only_discards_when_requested():
+    valid = with_feedback_checksum(make_frame(0x10))
+    invalid = make_frame(0x20, {22: 0x00})
+
+    assert has_valid_checksum(valid) is True
+    assert has_valid_checksum(invalid) is False
+    assert filter_frames_by_checksum([valid, invalid], require_valid=False) == [valid, invalid]
+    assert filter_frames_by_checksum([valid, invalid], require_valid=True) == [valid]
 
 
 def test_frame_length_distribution_is_sorted():

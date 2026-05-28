@@ -155,7 +155,7 @@ def monitor_odometry(
     mode: str,
     output_path: Path | None,
     print_every: int,
-) -> int:
+) -> tuple[int, int]:
     from ackermann_robot.drivers.c30d_feedback import parse_feedback_candidates
     from ackermann_robot.odometry.c30d_dead_reckoning import load_c30d_calibration
     from monitor_c30d_feedback_readonly import (
@@ -169,6 +169,7 @@ def monitor_odometry(
         raise ValueError("calibrated live C30D yaw odometry is not implemented")
 
     parsed_count = 0
+    invalid_checksum_count = 0
     state = LiveOdometryState()
     buffer = bytearray()
     output_file, writer = open_csv_writer(output_path)
@@ -187,6 +188,8 @@ def monitor_odometry(
                     parse_feedback_candidates([frame])[0],
                     frame_index=parsed_count,
                 )
+                if not candidate.checksum_valid:
+                    invalid_checksum_count += 1
                 state, sample = update_live_odometry(
                     candidate=candidate,
                     state=state,
@@ -206,7 +209,7 @@ def monitor_odometry(
         if output_file is not None:
             output_file.close()
 
-    return parsed_count
+    return parsed_count, invalid_checksum_count
 
 
 def validate_args(args: argparse.Namespace) -> None:
@@ -237,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"output_path: {output_path}")
 
     try:
-        frame_count = monitor_odometry(
+        frame_count, invalid_checksum_count = monitor_odometry(
             port=args.port,
             baud=args.baud,
             duration_s=args.duration,
@@ -251,6 +254,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(f"parsed_frame_count: {frame_count}")
+    print(f"invalid_checksum_count: {invalid_checksum_count}")
+    if invalid_checksum_count:
+        print("warning: invalid C30D feedback checksum frames observed", file=sys.stderr)
     return 0
 
 

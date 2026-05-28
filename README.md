@@ -225,11 +225,19 @@ Analyze read-only checksum hypotheses for saved C30D captures:
 
     python scripts/analyze_c30d_checksum.py data/c30d_captures/*.bin
 
-The checksum analyzer tests byte 22 as a checksum candidate using simple sum, two's
-complement, one's complement, and XOR hypotheses over documented byte ranges. It reports
-match counts and percentages only. A 100% match across multiple captures is evidence for
-review, not confirmation of the protocol by itself. It reads only saved `.bin` files and
-never writes to C30D.
+Read-only captures confirmed the C30D feedback checksum as XOR of bytes 0 through 21,
+stored at byte 22. The feedback parser and CSV exporters report `checksum_valid` for
+every fixed 24-byte frame, and read-only live monitors print invalid checksum counts and
+warnings if any appear. The checksum analyzer remains useful for auditing saved captures.
+It reads only saved `.bin` files and never writes to C30D.
+
+Analyze the candidate status byte in checksum-valid feedback frames:
+
+    python scripts/analyze_c30d_status_byte.py data/c30d_captures/*.bin
+
+The status-byte analyzer reads saved `.bin` files only. It filters to checksum-valid
+fixed-length feedback frames, then reports byte 21 min/max, unique values, transitions,
+and counts without assigning physical meaning.
 
 Compare multiple saved C30D captures against the first file as the baseline:
 
@@ -259,8 +267,8 @@ Save plots to a custom analysis directory:
 
 Candidate field plots are saved as PNG files under `data/c30d_analysis/` by default.
 The plotting tool uses adjacent signed int16 candidate pairs from `02_03` through
-`18_19` in big-endian, little-endian, or both. Byte 22 is excluded because it is only a
-checksum candidate. Plot labels remain candidate names only and do not assign encoder,
+`18_19` in big-endian, little-endian, or both. Byte 22 is excluded because it is the
+confirmed feedback checksum byte. Plot labels remain candidate names only and do not assign encoder,
 IMU, steering, or other physical meanings.
 
 Plot one candidate field across multiple captures on a single comparison graph:
@@ -292,7 +300,7 @@ The feedback exporter is offline and read-only. It extracts the same fixed 24-by
 frames and writes CSV rows under `data/c30d_analysis/` by default. Decoded columns remain
 candidate names only: `candidate_forward_motion` from bytes `02_03`,
 `candidate_yaw_motion` from bytes `06_07`, candidate IMU/motion fields from `12_13`,
-`14_15`, `16_17`, and `18_19`, plus `checksum_candidate` from byte `22`.
+`14_15`, `16_17`, and `18_19`, plus `checksum_candidate` and `checksum_valid`.
 These names reflect current hand-spin observations and are not confirmed protocol fields.
 
 Monitor live C30D feedback candidates without writing to the controller:
@@ -309,8 +317,9 @@ Save decoded live candidate rows under `data/c30d_live/`:
 
 The live monitor is explicitly read-only. It opens the C30D serial port with a read-only
 file descriptor, extracts fixed 24-byte frames with `0x7B` at byte 0 and `0x7D` at byte
-23, decodes the same candidate fields as the offline exporter, and never writes bytes or
-sends motor/steering commands. Live field names remain candidate labels only.
+23, decodes the same candidate fields as the offline exporter, reports invalid checksum
+counts, and never writes bytes or sends motor/steering commands. Live field names remain
+candidate labels only.
 
 Monitor provisional live C30D odometry without writing to the controller:
 

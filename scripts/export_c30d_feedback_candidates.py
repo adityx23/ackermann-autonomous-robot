@@ -33,7 +33,7 @@ def output_path_for(capture_path: Path, output_dir: Path) -> Path:
     return output_dir / f"{capture_path.stem}_feedback_candidates.csv"
 
 
-def export_feedback_candidates(capture_path: Path, output_dir: Path) -> tuple[Path, int]:
+def export_feedback_candidates(capture_path: Path, output_dir: Path) -> tuple[Path, int, int]:
     from ackermann_robot.drivers.c30d_feedback import (
         C30DFeedbackCandidate,
         parse_feedback_candidates,
@@ -43,6 +43,7 @@ def export_feedback_candidates(capture_path: Path, output_dir: Path) -> tuple[Pa
     data = capture_path.read_bytes()
     frames = extract_frames(data)
     candidates = parse_feedback_candidates(frames)
+    invalid_checksum_count = sum(1 for candidate in candidates if not candidate.checksum_valid)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_path_for(capture_path, output_dir)
@@ -52,13 +53,15 @@ def export_feedback_candidates(capture_path: Path, output_dir: Path) -> tuple[Pa
         writer.writeheader()
         writer.writerows(asdict(candidate) for candidate in candidates)
 
-    return output_path, len(candidates)
+    return output_path, len(candidates), invalid_checksum_count
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        output_path, row_count = export_feedback_candidates(args.capture, args.output_dir)
+        output_path, row_count, invalid_checksum_count = export_feedback_candidates(
+            args.capture, args.output_dir
+        )
     except OSError as exc:
         print(f"failed to read or write C30D feedback candidate CSV: {exc}", file=sys.stderr)
         return 1
@@ -69,6 +72,9 @@ def main(argv: list[str] | None = None) -> int:
     print("Read-only C30D candidate feedback export from saved capture only.")
     print(f"output_path: {output_path}")
     print(f"row_count: {row_count}")
+    print(f"invalid_checksum_count: {invalid_checksum_count}")
+    if invalid_checksum_count:
+        print("warning: invalid C30D feedback checksum frames were exported", file=sys.stderr)
     return 0
 
 

@@ -14,7 +14,9 @@ research scaffold, not an implementation plan for motor movement.
 - Passive read-only feedback captures show a fixed 24-byte frame shape.
 - Feedback byte 0 is `0x7B`.
 - Feedback byte 23 is `0x7D`.
-- Feedback byte 22 changes heavily and is a checksum candidate.
+- Feedback byte 22 is a feedback checksum byte.
+- The feedback checksum is confirmed from saved captures as XOR of bytes 0 through 21,
+  with the expected checksum stored at byte 22.
 - Feedback byte 20 is often observed as `0x2A`.
 - Feedback byte 21 may be status, counter, or mode data, but this is not confirmed.
 - Feedback candidate fields exist in the current analysis scripts.
@@ -54,11 +56,21 @@ Checksum hypothesis analysis:
 
     python scripts/analyze_c30d_checksum.py data/c30d_captures/*.bin
 
-The checksum analyzer reads only saved passive `.bin` captures. It tests simple
-sum/xor/complement checksum hypotheses against byte 22 over documented byte ranges such
-as bytes 1 through 21, bytes 0 through 21, bytes 1 through 20, and bytes 8 through 21.
-It reports match counts and percentages. A 100% match across multiple captures is only
-evidence for review, not final protocol confirmation by itself.
+The checksum analyzer reads only saved passive `.bin` captures. It showed a 100% match
+for feedback byte 22 as XOR of bytes 0 through 21 across stationary, wheel-spin, and
+manual-roll captures. The feedback frame parser now reports `checksum_valid` for every
+parsed frame.
+
+Analyze the candidate status byte without assigning physical meaning:
+
+    python scripts/analyze_c30d_status_byte.py data/c30d_captures/*.bin
+
+The status-byte analyzer reads only saved `.bin` captures, filters to checksum-valid
+fixed-length frames, and reports byte 21 min/max, unique values, transitions, and counts.
+Byte 21 remains an unassigned status, counter, or mode candidate.
+
+The command-packet checksum may use a similar rule, but that is not confirmed. Do not
+apply the feedback checksum rule to commands without command-side evidence.
 
 ## Command Packet Hypotheses
 

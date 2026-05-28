@@ -29,6 +29,19 @@ def extract_frames(data: bytes) -> list[bytes]:
     return extract_frames_with_stats(data).frames
 
 
+def has_valid_checksum(frame: bytes) -> bool:
+    from ackermann_robot.drivers.c30d_checksum import is_valid_feedback_checksum
+
+    return is_valid_feedback_checksum(frame)
+
+
+def filter_frames_by_checksum(frames: Iterable[bytes], require_valid: bool = False) -> list[bytes]:
+    frame_list = _materialize_frames(frames)
+    if not require_valid:
+        return frame_list
+    return [frame for frame in frame_list if has_valid_checksum(frame)]
+
+
 def extract_frames_with_stats(data: bytes) -> FrameExtractionResult:
     frames: list[bytes] = []
     rejected_resync_count = 0

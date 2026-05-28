@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from typing import Callable, Iterable
 
 CHECKSUM_INDEX = 22
+FEEDBACK_CHECKSUM_END_EXCLUSIVE = 22
+FEEDBACK_FRAME_LENGTH = 24
 
 
 @dataclass(frozen=True)
@@ -61,6 +63,17 @@ def xor_checksum(data: bytes) -> int:
 
 def ones_complement_sum(data: bytes) -> int:
     return (~sum(data)) & 0xFF
+
+
+def compute_feedback_checksum(frame: bytes) -> int:
+    return xor_checksum(frame[:FEEDBACK_CHECKSUM_END_EXCLUSIVE])
+
+
+def is_valid_feedback_checksum(frame: bytes) -> bool:
+    return (
+        len(frame) == FEEDBACK_FRAME_LENGTH
+        and compute_feedback_checksum(frame) == frame[CHECKSUM_INDEX]
+    )
 
 
 CHECKSUM_FUNCTIONS: tuple[tuple[str, ChecksumFunction], ...] = (

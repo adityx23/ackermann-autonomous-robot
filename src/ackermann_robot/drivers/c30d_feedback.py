@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ackermann_robot.drivers.c30d_checksum import is_valid_feedback_checksum
 from ackermann_robot.drivers.c30d_frames import FRAME_END, FRAME_LENGTH, FRAME_START
 
 
@@ -15,6 +16,7 @@ class C30DFeedbackCandidate:
     candidate_imu_16_17: int
     candidate_imu_18_19: int
     checksum_candidate: int
+    checksum_valid: bool
     raw_frame_hex: str
 
 
@@ -48,6 +50,7 @@ def parse_feedback_candidates(frames: list[bytes]) -> list[C30DFeedbackCandidate
                 candidate_imu_16_17=_decode_int16_be(frame, 16),
                 candidate_imu_18_19=_decode_int16_be(frame, 18),
                 checksum_candidate=frame[22],
+                checksum_valid=is_valid_feedback_checksum(frame),
                 raw_frame_hex=frame.hex(" "),
             )
         )

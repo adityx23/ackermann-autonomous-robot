@@ -110,7 +110,8 @@ def format_live_line(candidate) -> str:
         f"{candidate.candidate_imu_14_15},"
         f"{candidate.candidate_imu_16_17},"
         f"{candidate.candidate_imu_18_19}) "
-        f"checksum_candidate={candidate.checksum_candidate}"
+        f"checksum_candidate={candidate.checksum_candidate} "
+        f"checksum_valid={candidate.checksum_valid}"
     )
 
 
@@ -170,10 +171,11 @@ def monitor_feedback(
     duration_s: float,
     output_path: Path | None,
     print_every: int,
-) -> int:
+) -> tuple[int, int]:
     from ackermann_robot.drivers.c30d_feedback import parse_feedback_candidates
 
     parsed_count = 0
+    invalid_checksum_count = 0
     buffer = bytearray()
     output_file, writer = open_csv_writer(output_path)
     deadline = time.monotonic() + duration_s
@@ -192,6 +194,8 @@ def monitor_feedback(
                     frame_index=parsed_count,
                 )
                 parsed_count += 1
+                if not candidate.checksum_valid:
+                    invalid_checksum_count += 1
 
                 if writer is not None:
                     writer.writerow(asdict(candidate))
@@ -204,7 +208,7 @@ def monitor_feedback(
         if output_file is not None:
             output_file.close()
 
-    return parsed_count
+    return parsed_count, invalid_checksum_count
 
 
 def validate_args(args: argparse.Namespace) -> None:
@@ -231,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"output_path: {output_path}")
 
     try:
-        frame_count = monitor_feedback(
+        frame_count, invalid_checksum_count = monitor_feedback(
             port=args.port,
             baud=args.baud,
             duration_s=args.duration,
@@ -243,6 +247,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(f"parsed_frame_count: {frame_count}")
+    print(f"invalid_checksum_count: {invalid_checksum_count}")
+    if invalid_checksum_count:
+        print("warning: invalid C30D feedback checksum frames observed", file=sys.stderr)
     return 0
 
 

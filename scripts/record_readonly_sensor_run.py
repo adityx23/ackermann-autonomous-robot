@@ -227,6 +227,7 @@ def record_c30d(settings: RunSettings, run_dir: Path) -> dict[str, int]:
     calibration = load_c30d_calibration("config/c30d_calibration.yaml")
 
     parsed_count = 0
+    invalid_checksum_count = 0
     state = LiveOdometryState()
     buffer = bytearray()
     deadline = time.monotonic() + settings.duration_s
@@ -258,6 +259,8 @@ def record_c30d(settings: RunSettings, run_dir: Path) -> dict[str, int]:
                             parse_feedback_candidates([frame])[0],
                             frame_index=parsed_count,
                         )
+                        if not candidate.checksum_valid:
+                            invalid_checksum_count += 1
                         state, odometry = update_live_odometry(
                             candidate=candidate,
                             state=state,
@@ -274,6 +277,7 @@ def record_c30d(settings: RunSettings, run_dir: Path) -> dict[str, int]:
     return {
         "feedback_frames": parsed_count,
         "odometry_rows": parsed_count,
+        "invalid_checksum_frames": invalid_checksum_count,
     }
 
 
@@ -335,6 +339,8 @@ def record_enabled_sensors(settings: RunSettings, run_dir: Path) -> dict[str, An
     if settings.enable_c30d:
         print("Recording C30D feedback read-only.")
         results["c30d"] = record_c30d(settings, run_dir)
+        if results["c30d"]["invalid_checksum_frames"]:
+            print("warning: invalid C30D feedback checksum frames observed", file=sys.stderr)
     if settings.enable_rplidar:
         print("Recording RPLIDAR scan.")
         results["rplidar_points"] = record_rplidar(settings, run_dir)

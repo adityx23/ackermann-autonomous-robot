@@ -6,6 +6,8 @@ from pathlib import Path
 
 from ackermann_robot.drivers.c30d_checksum import (
     CHECKSUM_INDEX,
+    compute_feedback_checksum,
+    is_valid_feedback_checksum,
     sum_mod_256,
     test_checksum_hypotheses as run_checksum_hypotheses,
     twos_complement_sum,
@@ -79,6 +81,26 @@ def test_checksum_hypotheses_use_byte_22_as_candidate():
 
     assert frame[CHECKSUM_INDEX] == 0xA5
     assert all(result.frame_count == 1 for result in run_checksum_hypotheses([frame]))
+
+
+def test_feedback_checksum_uses_xor_of_bytes_0_through_21():
+    payload = [index & 0xFF for index in range(1, 22)]
+    frame = build_frame(payload, checksum=0x00)
+    expected = xor_checksum(frame[:CHECKSUM_INDEX])
+
+    assert compute_feedback_checksum(frame) == expected
+
+
+def test_feedback_checksum_validation_detects_corruption():
+    payload = [index & 0xFF for index in range(1, 22)]
+    valid = bytearray(build_frame(payload, checksum=0x00))
+    valid[CHECKSUM_INDEX] = compute_feedback_checksum(valid)
+
+    corrupted = bytearray(valid)
+    corrupted[3] ^= 0x01
+
+    assert is_valid_feedback_checksum(bytes(valid)) is True
+    assert is_valid_feedback_checksum(bytes(corrupted)) is False
 
 
 def test_analyze_c30d_checksum_script_prints_top_hypotheses(tmp_path: Path, capsys):
