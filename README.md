@@ -107,6 +107,24 @@ Print the current C30D command protocol status:
 
     python scripts/c30d_command_protocol_status.py
 
+Build a non-transmitting C30D-like command hypothesis frame offline:
+
+    python scripts/build_c30d_hypothesis_frame.py 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+The hypothesis builder accepts exactly 21 hex payload bytes for frame bytes 1-21 and
+prints a 24-byte frame shape using `0x7B` start, XOR checksum over bytes 0-21 at byte 22,
+and `0x7D` end. Output is labeled `unverified_hypothesis` with `protocol_known: false`
+and `transmit_allowed: false`. It is offline tooling only: do not send these bytes to the
+C30D.
+
+Summarize saved C30D feedback frame structure from passive `.bin` captures:
+
+    python scripts/analyze_c30d_frame_structure.py data/c30d_captures/*.bin
+
+This analyzer prints the observed feedback frame template, checksum rule, candidate
+fields including `candidate_battery_mV` from `uint16_be_20_21`, and unknown byte
+positions. It reads saved files only and does not infer the command protocol.
+
 Search local files for C30D protocol references:
 
     python scripts/search_c30d_protocol_references.py
@@ -136,11 +154,13 @@ dry-run command tests. C30D feedback decoding is partially understood as
 read-only candidate fields from the integrated motor/servo/encoder/IMU controller, but
 the real C30D motor/steering command protocol is unknown and not implemented. Because the
 motors and steering servo are wired directly to the C30D, movement requires the C30D
-command protocol unless the hardware is rewired. `dry_run_drive_command.py` builds only a
-placeholder packet marked `UNIMPLEMENTED`; it does not contain real bytes and must not be
-transmitted. Real motor commands are blocked until official C30D command documentation or
-known-good command examples are available. These scripts do not open `/dev/c30d` for
-commands, do not write serial bytes, and do not move motors or steering.
+command protocol unless the hardware is rewired. `dry_run_drive_command.py` builds only
+a placeholder packet marked `UNIMPLEMENTED`; it does not contain real bytes and must not
+be transmitted. `build_c30d_hypothesis_frame.py` can construct offline C30D-like frames
+for research, but every output is an `unverified_hypothesis` with transmission disabled.
+Real motor commands are blocked until official C30D command documentation or known-good
+command examples are available. These scripts do not open `/dev/c30d` for commands, do
+not write serial bytes, and do not move motors or steering.
 
 The C30D protocol research scaffold lives in `docs/c30d_protocol_research.md`. Current
 status: read-only feedback capture and candidate decoding work, the dry-run command path

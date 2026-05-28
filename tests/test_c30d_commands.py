@@ -13,7 +13,9 @@ from ackermann_robot.drivers.c30d_commands import (
 
 
 def load_protocol_status_script():
-    script_path = Path(__file__).resolve().parents[1] / "scripts" / "c30d_command_protocol_status.py"
+    script_path = (
+        Path(__file__).resolve().parents[1] / "scripts" / "c30d_command_protocol_status.py"
+    )
     spec = importlib.util.spec_from_file_location(script_path.stem, script_path)
     assert spec is not None
     assert spec.loader is not None
@@ -61,7 +63,10 @@ def test_c30d_command_protocol_status_reports_disabled(capsys):
     assert "movement_requires_c30d_command_protocol: true" in output
     assert "command_protocol_known: false" in output
     assert "command_protocol_implemented: false" in output
+    assert "command_hypothesis_builder_exists: true" in output
+    assert "known_good_command_found: false" in output
     assert "real_motor_command_path: disabled" in output
+    assert "command_transmission: disabled" in output
     assert "movement_blocked_until: command_protocol_discovered_safely" in output
     assert "serial_write_path: absent" in output
 

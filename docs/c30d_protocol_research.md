@@ -33,6 +33,9 @@ research scaffold, not an implementation plan for motor movement.
 - The real motor/steering command path is disabled.
 - The dry-run command path only creates an `UNIMPLEMENTED` placeholder and never returns
   bytes to transmit.
+- An offline command hypothesis builder exists for constructing C30D-like 24-byte frames
+  labeled `unverified_hypothesis`. It is not a command implementation, does not transmit,
+  and must not be sent to the C30D.
 
 Architecture reference:
 
@@ -87,7 +90,24 @@ path remains disabled.
 
 ## Command Packet Hypotheses
 
-No command packet hypotheses are recorded yet.
+No known-good command packet has been found.
+
+The repository includes a non-transmitting hypothesis lab for offline byte-shape work:
+
+    python scripts/build_c30d_hypothesis_frame.py 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+This builds a 24-byte C30D-like frame with byte 0 set to `0x7B`, bytes 1-21 supplied by
+the caller, byte 22 set to XOR of bytes 0-21, and byte 23 set to `0x7D`. Every output is
+labeled `unverified_hypothesis`, `protocol_known: false`, and `transmit_allowed: false`.
+The builder has no serial transmission path.
+
+Summarize saved feedback captures into the stable observed frame template:
+
+    python scripts/analyze_c30d_frame_structure.py data/c30d_captures/*.bin
+
+This analyzer reads only saved `.bin` files. It prints the observed feedback start byte,
+checksum rule, end byte, `uint16_be_20_21` as `candidate_battery_mV`, and unknown byte
+positions. It does not infer command fields.
 
 Do not add a hypothesis here unless it is tied to a concrete evidence source such as an
 official manual, vendor example, known driver, or tested demo. Do not infer command bytes
