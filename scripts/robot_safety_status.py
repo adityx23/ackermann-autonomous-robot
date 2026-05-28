@@ -53,12 +53,26 @@ def run_preflight(duration_s: float) -> bool:
     return run_sensor_preflight(args) == 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    from ackermann_robot.control.arming import (
-        ArmingState,
-        evaluate_safety_gate,
-        load_command_safety_config,
+def status_for_preflight(config, preflight_passed: bool):
+    from ackermann_robot.control.arming import ArmingState, evaluate_safety_gate
+
+    state = ArmingState(
+        preflight_passed=preflight_passed,
+        manual_enable=False,
+        wheels_lifted_confirmed=False,
+        dry_run=config.dry_run_default,
+        serial_write_allowed=False,
     )
+    return evaluate_safety_gate(
+        config=config,
+        state=state,
+        speed_mps=0.0,
+        duration_s=0.0,
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    from ackermann_robot.control.arming import load_command_safety_config
 
     args = build_parser().parse_args(argv)
     config = load_command_safety_config(args.config)
@@ -69,20 +83,9 @@ def main(argv: list[str] | None = None) -> int:
         preflight_passed = run_preflight(args.preflight_duration)
     else:
         print("preflight: not_run")
+    print(f"preflight_passed: {preflight_passed}")
 
-    state = ArmingState(
-        preflight_passed=preflight_passed,
-        manual_enable=False,
-        wheels_lifted_confirmed=False,
-        dry_run=config.dry_run_default,
-        serial_write_allowed=False,
-    )
-    gate = evaluate_safety_gate(
-        config=config,
-        state=state,
-        speed_mps=0.0,
-        duration_s=0.0,
-    )
+    gate = status_for_preflight(config, preflight_passed)
 
     print("Command Test Status")
     print(f"dry_run: {gate.dry_run}")

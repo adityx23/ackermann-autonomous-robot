@@ -102,15 +102,20 @@ Evaluate a future drive command through the dry-run safety gate:
 
     python scripts/dry_run_drive_command.py --speed-mps 0.1 --steering-deg 5 --duration 1 --manual-enable --wheels-lifted
 
+Require a passed read-only preflight before accepting the dry-run command:
+
+    python scripts/dry_run_drive_command.py --speed-mps 0.1 --steering-deg 5 --duration 1 --manual-enable --wheels-lifted --require-preflight --run-preflight
+
 Try an unsafe dry-run command and see it rejected/clamped:
 
     python scripts/dry_run_drive_command.py --speed-mps 0.8 --steering-deg 5 --duration 1 --manual-enable --wheels-lifted
 
 The command safety scaffold is configured by `config/command_safety.yaml`. Dry-run is the
 default, manual enable and wheels-lifted confirmation are required for motor test
-commands, and `allow_serial_write` is false. The real C30D motor/steering command
-protocol is not implemented yet; these scripts do not open `/dev/c30d`, do not write
-serial bytes, and do not move motors or steering.
+commands, `--require-preflight` can make read-only preflight a dry-run gate, and
+`allow_serial_write` is false. The real C30D motor/steering command protocol is not
+implemented yet; these scripts do not open `/dev/c30d` for commands, do not write serial
+bytes, and do not move motors or steering.
 
 Capture a short finite RPLIDAR C1 scan sample with the SLAMTEC SDK backend:
 

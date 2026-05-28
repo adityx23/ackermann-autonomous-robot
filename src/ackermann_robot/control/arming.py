@@ -75,6 +75,7 @@ def evaluate_safety_gate(
     speed_mps: float,
     duration_s: float,
     command_was_clamped: bool = False,
+    require_preflight: bool = False,
 ) -> SafetyGateResult:
     reasons: list[str] = []
     warnings: list[str] = []
@@ -91,7 +92,9 @@ def evaluate_safety_gate(
     if command_was_clamped:
         reasons.append("command_filter_clamped_command")
 
-    if not state.dry_run and not state.preflight_passed:
+    if require_preflight and not state.preflight_passed:
+        reasons.append("preflight_required")
+    elif not state.dry_run and not state.preflight_passed:
         reasons.append("preflight_required_for_real_command_path")
     elif state.dry_run and not state.preflight_passed:
         warnings.append("preflight_not_passed_dry_run_only")

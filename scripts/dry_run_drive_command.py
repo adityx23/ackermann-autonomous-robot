@@ -8,7 +8,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
-for path in (SRC_ROOT,):
+SCRIPT_ROOT = REPO_ROOT / "scripts"
+for path in (SRC_ROOT, SCRIPT_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
@@ -23,12 +24,36 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--manual-enable", action="store_true")
     parser.add_argument("--wheels-lifted", action="store_true")
     parser.add_argument(
+        "--require-preflight",
+        action="store_true",
+        help="Reject the dry-run command unless read-only preflight has passed.",
+    )
+    parser.add_argument(
+        "--run-preflight",
+        action="store_true",
+        help="Run read-only sensor preflight before evaluating the dry-run command.",
+    )
+    parser.add_argument(
+        "--preflight-duration",
+        type=float,
+        default=3.0,
+        help="Duration to pass to check_robot_sensors.py when --run-preflight is set.",
+    )
+    parser.add_argument(
         "--config",
         type=Path,
         default=Path("config/command_safety.yaml"),
         help="Command safety config path.",
     )
     return parser
+
+
+def run_preflight(duration_s: float) -> bool:
+    from check_robot_sensors import build_parser as build_preflight_parser
+    from check_robot_sensors import run_preflight as run_sensor_preflight
+
+    args = build_preflight_parser().parse_args(["--duration", str(duration_s)])
+    return run_sensor_preflight(args) == 0
 
 
 def run_dry_command(args: argparse.Namespace) -> int:
@@ -62,8 +87,9 @@ def run_dry_command(args: argparse.Namespace) -> int:
     command_was_clamped = (
         filtered.speed_mps != command.speed_mps or filtered.steering_deg != command.steering_deg
     )
+    preflight_passed = run_preflight(args.preflight_duration) if args.run_preflight else False
     state = ArmingState(
-        preflight_passed=False,
+        preflight_passed=preflight_passed,
         manual_enable=args.manual_enable,
         wheels_lifted_confirmed=args.wheels_lifted,
         dry_run=True,
@@ -75,9 +101,12 @@ def run_dry_command(args: argparse.Namespace) -> int:
         speed_mps=command.speed_mps,
         duration_s=args.duration,
         command_was_clamped=command_was_clamped,
+        require_preflight=args.require_preflight,
     )
 
     print("DRY-RUN drive command only. No serial port is opened. No bytes are written.")
+    print(f"require_preflight: {args.require_preflight}")
+    print(f"preflight_passed: {preflight_passed}")
     print(f"requested_speed_mps: {command.speed_mps}")
     print(f"requested_steering_deg: {command.steering_deg}")
     print(f"requested_duration_s: {args.duration}")

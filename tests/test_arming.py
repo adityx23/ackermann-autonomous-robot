@@ -79,6 +79,40 @@ def test_serial_write_allowed_false_by_default_even_for_non_dry_run():
     assert "serial_write_not_allowed" in result.reasons
 
 
+def test_preflight_required_rejects_when_not_passed():
+    result = evaluate_safety_gate(
+        config=CommandSafetyConfig(),
+        state=ArmingState(
+            preflight_passed=False,
+            manual_enable=True,
+            wheels_lifted_confirmed=True,
+        ),
+        speed_mps=0.1,
+        duration_s=1.0,
+        require_preflight=True,
+    )
+
+    assert not result.allowed
+    assert "preflight_required" in result.reasons
+
+
+def test_preflight_required_allows_when_passed_with_manual_enable_and_wheels_lifted():
+    result = evaluate_safety_gate(
+        config=CommandSafetyConfig(),
+        state=ArmingState(
+            preflight_passed=True,
+            manual_enable=True,
+            wheels_lifted_confirmed=True,
+        ),
+        speed_mps=0.1,
+        duration_s=1.0,
+        require_preflight=True,
+    )
+
+    assert result.allowed
+    assert result.reasons == ()
+
+
 def test_command_safety_config_from_dict_defaults_serial_write_false():
     config = command_safety_config_from_dict(
         {

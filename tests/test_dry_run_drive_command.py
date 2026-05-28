@@ -113,6 +113,63 @@ def test_dry_run_drive_command_rejects_excessive_speed_and_reports_clamp(
     assert "command_filter_clamped_command" in output
 
 
+def test_dry_run_drive_command_rejects_when_required_preflight_not_passed(
+    tmp_path: Path, capsys
+):
+    module = load_dry_run_script()
+    config_path = tmp_path / "command_safety.yaml"
+    write_command_safety_config(config_path)
+
+    exit_code = module.main(
+        [
+            "--speed-mps",
+            "0.1",
+            "--duration",
+            "1.0",
+            "--manual-enable",
+            "--wheels-lifted",
+            "--require-preflight",
+            "--config",
+            str(config_path),
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "require_preflight: True" in output
+    assert "preflight_passed: False" in output
+    assert "preflight_required" in output
+
+
+def test_dry_run_drive_command_allows_required_preflight_when_run_preflight_passes(
+    monkeypatch, tmp_path: Path, capsys
+):
+    module = load_dry_run_script()
+    config_path = tmp_path / "command_safety.yaml"
+    write_command_safety_config(config_path)
+    monkeypatch.setattr(module, "run_preflight", lambda duration_s: True)
+
+    exit_code = module.main(
+        [
+            "--speed-mps",
+            "0.1",
+            "--duration",
+            "1.0",
+            "--manual-enable",
+            "--wheels-lifted",
+            "--require-preflight",
+            "--run-preflight",
+            "--config",
+            str(config_path),
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "preflight_passed: True" in output
+    assert "safety_allowed: True" in output
+
+
 def test_dry_run_drive_command_does_not_open_serial(monkeypatch, tmp_path: Path):
     module = load_dry_run_script()
     config_path = tmp_path / "command_safety.yaml"
