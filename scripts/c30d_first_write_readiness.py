@@ -172,6 +172,17 @@ def load_warning_battery_threshold() -> int:
     return load_battery_safety_config().warn_battery_mV
 
 
+def unique_reasons_preserving_order(reasons: list[str]) -> tuple[str, ...]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for reason in reasons:
+        if reason in seen:
+            continue
+        seen.add(reason)
+        unique.append(reason)
+    return tuple(unique)
+
+
 def evaluate_readiness(
     confirmations: dict[str, bool],
     preflight: PreflightSummary,
@@ -198,9 +209,10 @@ def evaluate_readiness(
     if not validation.valid:
         reasons.extend(validation.reasons)
 
+    unique_reasons = unique_reasons_preserving_order(reasons)
     return ReadinessReport(
-        readiness_allowed=not reasons,
-        reasons=tuple(reasons),
+        readiness_allowed=not unique_reasons,
+        reasons=unique_reasons,
         preflight=preflight,
         zero_frame=frame,
         zero_frame_validation=validation,

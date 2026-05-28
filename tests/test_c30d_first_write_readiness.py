@@ -44,6 +44,19 @@ def test_readiness_fails_when_battery_below_warning_threshold():
     assert "candidate_battery_below_warning_threshold" in report.reasons
 
 
+def test_readiness_reasons_are_unique_preserving_order_for_duplicate_battery_warning():
+    module = load_readiness_script()
+    preflight = module.PreflightSummary(
+        passed=True,
+        candidate_battery_mV=10799,
+        battery_warning_reasons=("candidate_battery_below_warning_threshold",),
+    )
+
+    report = module.evaluate_readiness(all_confirmations(), preflight, warning_battery_mV=10800)
+
+    assert report.reasons == ("candidate_battery_below_warning_threshold",)
+
+
 def test_readiness_fails_when_confirmation_missing():
     module = load_readiness_script()
     confirmations = all_confirmations()
