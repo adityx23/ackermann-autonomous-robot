@@ -200,6 +200,21 @@ of overlaying many fields from one capture. Bare `--pairs` uses only aligned pai
 `02_03`, `06_07`, `08_09`, `10_11`, `12_13`, `14_15`, `16_17`, and `18_19`; overlapping
 pairs such as `03_04`, `05_06`, and `07_08` are not included by default.
 
+Export read-only candidate C30D feedback fields from a saved capture:
+
+    python scripts/export_c30d_feedback_candidates.py data/c30d_captures/motion.bin
+
+Write the CSV to a custom analysis directory:
+
+    python scripts/export_c30d_feedback_candidates.py data/c30d_captures/motion.bin --output-dir data/c30d_analysis
+
+The feedback exporter is offline and read-only. It extracts the same fixed 24-byte C30D
+frames and writes CSV rows under `data/c30d_analysis/` by default. Decoded columns remain
+candidate names only: `candidate_forward_motion` from bytes `02_03`,
+`candidate_yaw_motion` from bytes `06_07`, candidate IMU/motion fields from `12_13`,
+`14_15`, `16_17`, and `18_19`, plus `checksum_candidate` from byte `22`.
+These names reflect current hand-spin observations and are not confirmed protocol fields.
+
 ## Logs
 
 Use `setup_logging()` from `ackermann_robot.utils.logging_utils` to create a timestamped
