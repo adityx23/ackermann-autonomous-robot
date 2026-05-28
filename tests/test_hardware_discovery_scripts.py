@@ -497,6 +497,25 @@ def test_rplidar_scan_parses_sdk_output_lines():
     ]
 
 
+def test_rplidar_scan_parses_sdk_output_with_capture_window_timestamps():
+    module = load_script("rplidar_scan_sample.py")
+    stdout = "\n".join(
+        [
+            "S  theta: 010.00 Dist: 00100.00 Q: 10 ",
+            "   theta: 020.00 Dist: 00200.00 Q: 20 ",
+            "   theta: 030.00 Dist: 00300.00 Q: 30 ",
+        ]
+    )
+
+    points, unparsed = module.parse_sdk_output(
+        stdout, start_timestamp_s=100.0, end_timestamp_s=102.0
+    )
+
+    assert unparsed == []
+    assert [point.timestamp_s for point in points] == [100.0, 101.0, 102.0]
+    assert [point.angle_deg for point in points] == [10.0, 20.0, 30.0]
+
+
 def test_rplidar_scan_reports_unparsed_sdk_scan_like_lines():
     module = load_script("rplidar_scan_sample.py")
 

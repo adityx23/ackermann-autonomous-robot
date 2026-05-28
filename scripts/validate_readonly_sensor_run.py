@@ -23,12 +23,16 @@ class CsvSummary:
     columns: tuple[str, ...] = ()
     first_timestamp: str | None = None
     last_timestamp: str | None = None
+    timestamp_duration_s: float | None = None
+    constant_timestamp_warning: bool = False
     first_frame_index: str | None = None
     last_frame_index: str | None = None
     final_odometry: tuple[str, str, str] | None = None
     lidar_point_count: int | None = None
     lidar_min_distance: float | None = None
     lidar_max_distance: float | None = None
+    lidar_zero_distance_count: int | None = None
+    lidar_nonpositive_distance_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -100,6 +104,8 @@ def summarize_csv(path: Path) -> CsvSummary:
         last_row: dict[str, str] | None = None
         min_distance: float | None = None
         max_distance: float | None = None
+        zero_distance_count = 0
+        nonpositive_distance_count = 0
 
         for row in reader:
             if first_row is None:
@@ -112,6 +118,10 @@ def summarize_csv(path: Path) -> CsvSummary:
                 if distance is not None:
                     min_distance = distance if min_distance is None else min(min_distance, distance)
                     max_distance = distance if max_distance is None else max(max_distance, distance)
+                    if distance == 0.0:
+                        zero_distance_count += 1
+                    if distance <= 0.0:
+                        nonpositive_distance_count += 1
 
     final_odometry = None
     if last_row is not None and {"x_m", "y_m", "theta_rad"}.issubset(columns):
@@ -125,19 +135,35 @@ def summarize_csv(path: Path) -> CsvSummary:
     if distance_column is not None:
         lidar_point_count = row_count
 
+    first_timestamp = first_row.get(timestamp_column) if first_row and timestamp_column else None
+    last_timestamp = last_row.get(timestamp_column) if last_row and timestamp_column else None
+    first_timestamp_float = optional_float(first_timestamp)
+    last_timestamp_float = optional_float(last_timestamp)
+    timestamp_duration_s = None
+    if first_timestamp_float is not None and last_timestamp_float is not None:
+        timestamp_duration_s = last_timestamp_float - first_timestamp_float
+
     return CsvSummary(
         path=path,
         exists=True,
         row_count=row_count,
         columns=columns,
-        first_timestamp=first_row.get(timestamp_column) if first_row and timestamp_column else None,
-        last_timestamp=last_row.get(timestamp_column) if last_row and timestamp_column else None,
+        first_timestamp=first_timestamp,
+        last_timestamp=last_timestamp,
+        timestamp_duration_s=timestamp_duration_s,
+        constant_timestamp_warning=(
+            row_count > 1 and first_timestamp is not None and first_timestamp == last_timestamp
+        ),
         first_frame_index=first_row.get(frame_index_column) if first_row and frame_index_column else None,
         last_frame_index=last_row.get(frame_index_column) if last_row and frame_index_column else None,
         final_odometry=final_odometry,
         lidar_point_count=lidar_point_count,
         lidar_min_distance=min_distance,
         lidar_max_distance=max_distance,
+        lidar_zero_distance_count=zero_distance_count if distance_column is not None else None,
+        lidar_nonpositive_distance_count=(
+            nonpositive_distance_count if distance_column is not None else None
+        ),
     )
 
 
@@ -164,6 +190,10 @@ def print_csv_summary(summary: CsvSummary) -> None:
     if summary.first_timestamp is not None or summary.last_timestamp is not None:
         print(f"  first_timestamp: {summary.first_timestamp}")
         print(f"  last_timestamp: {summary.last_timestamp}")
+        if summary.timestamp_duration_s is not None:
+            print(f"  timestamp_duration_s: {summary.timestamp_duration_s:g}")
+        if summary.constant_timestamp_warning:
+            print("  warning: constant timestamps across multiple rows")
     if summary.first_frame_index is not None or summary.last_frame_index is not None:
         print(f"  first_frame_index: {summary.first_frame_index}")
         print(f"  last_frame_index: {summary.last_frame_index}")
@@ -177,6 +207,8 @@ def print_csv_summary(summary: CsvSummary) -> None:
                 "  distance_range: "
                 f"min={summary.lidar_min_distance:g}, max={summary.lidar_max_distance:g}"
             )
+        print(f"  zero_distance_points: {summary.lidar_zero_distance_count}")
+        print(f"  nonpositive_distance_points: {summary.lidar_nonpositive_distance_count}")
 
 
 def print_image_summary(summary: ImageSummary) -> None:

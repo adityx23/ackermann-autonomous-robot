@@ -323,7 +323,9 @@ The unified logger creates `data/runs/run_YYYYMMDD_HHMMSS/` by default and write
 port/baud, and OAK capture settings. Enabled sensor outputs are `c30d_feedback.csv`,
 provisional straight-only `c30d_odometry.csv`, `rplidar_scan.csv`, and
 `oak_rgb/oak_rgb_0000.jpg`. C30D is opened read-only and the logger never sends motor or
-steering commands.
+steering commands. RPLIDAR rows keep the standard `timestamp_s`, `angle_deg`,
+`distance_mm`, and `quality` columns; SDK captures assign point timestamps across the
+host capture window instead of stamping the whole file with one time.
 
 Validate and summarize a saved unified read-only sensor run without touching hardware:
 
@@ -332,8 +334,9 @@ Validate and summarize a saved unified read-only sensor run without touching har
 The validator reads only `metadata.yaml`, CSV files, and `oak_rgb/` images from the saved
 run folder. It prints row counts, CSV columns, first/last timestamps or frame indexes when
 available, final C30D odometry, RPLIDAR point and distance summaries, and OAK RGB image
-file sizes. It exits nonzero only when data is missing for a sensor that was enabled in
-`metadata.yaml`.
+file sizes. For RPLIDAR CSVs it also prints timestamp duration, warns when multiple rows
+share one constant timestamp, and reports zero and nonpositive `distance_mm` points. It
+exits nonzero only when data is missing for a sensor that was enabled in `metadata.yaml`.
 
 ## Logs
 

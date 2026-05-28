@@ -79,7 +79,9 @@ def test_validate_run_folder_summarizes_complete_run(tmp_path: Path, capsys):
     assert "last_frame_index: 1" in captured.out
     assert "final_odometry: x_m=0.3, y_m=0.1, theta_rad=0.02" in captured.out
     assert "point_count: 2" in captured.out
+    assert "timestamp_duration_s: 0.1" in captured.out
     assert "distance_range: min=1000, max=1500" in captured.out
+    assert "zero_distance_points: 0" in captured.out
     assert "images: 1" in captured.out
     assert "validation: ok" in captured.out
 
@@ -135,3 +137,78 @@ def test_summarize_csv_handles_empty_csv_with_headers(tmp_path: Path):
     assert summary.columns == ("timestamp_s", "frame_index", "x_m", "y_m", "theta_rad")
     assert summary.first_timestamp is None
     assert summary.final_odometry is None
+
+
+def test_rplidar_changing_timestamps_do_not_warn(tmp_path: Path, capsys):
+    module = load_validate_script()
+    run_dir = tmp_path / "run_20260528_123456"
+    run_dir.mkdir()
+    write_metadata(run_dir, ["rplidar"])
+    (run_dir / "rplidar_scan.csv").write_text(
+        "\n".join(
+            [
+                "timestamp_s,angle_deg,distance_mm,quality",
+                "10.0,0.0,1000.0,10",
+                "10.5,90.0,1200.0,11",
+                "11.0,180.0,1300.0,12",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = module.validate_run_folder(run_dir)
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "timestamp_duration_s: 1" in captured.out
+    assert "warning: constant timestamps" not in captured.out
+
+
+def test_rplidar_constant_timestamps_generate_warning(tmp_path: Path, capsys):
+    module = load_validate_script()
+    run_dir = tmp_path / "run_20260528_123456"
+    run_dir.mkdir()
+    write_metadata(run_dir, ["rplidar"])
+    (run_dir / "rplidar_scan.csv").write_text(
+        "\n".join(
+            [
+                "timestamp_s,angle_deg,distance_mm,quality",
+                "10.0,0.0,1000.0,10",
+                "10.0,90.0,1200.0,11",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = module.validate_run_folder(run_dir)
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "timestamp_duration_s: 0" in captured.out
+    assert "warning: constant timestamps across multiple rows" in captured.out
+
+
+def test_rplidar_zero_distances_are_counted(tmp_path: Path, capsys):
+    module = load_validate_script()
+    run_dir = tmp_path / "run_20260528_123456"
+    run_dir.mkdir()
+    write_metadata(run_dir, ["rplidar"])
+    (run_dir / "rplidar_scan.csv").write_text(
+        "\n".join(
+            [
+                "timestamp_s,angle_deg,distance_mm,quality",
+                "10.0,0.0,0.0,0",
+                "10.1,90.0,-5.0,0",
+                "10.2,180.0,1200.0,12",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = module.validate_run_folder(run_dir)
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "point_count: 3" in captured.out
+    assert "zero_distance_points: 1" in captured.out
+    assert "nonpositive_distance_points: 2" in captured.out

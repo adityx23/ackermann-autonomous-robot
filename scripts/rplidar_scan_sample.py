@@ -111,19 +111,50 @@ def parse_sdk_scan_line(line: str, timestamp_s: float) -> ScanPoint | None:
     )
 
 
+def timestamp_for_index(
+    index: int, count: int, start_timestamp_s: float, end_timestamp_s: float
+) -> float:
+    if count <= 1:
+        return start_timestamp_s
+    fraction = index / (count - 1)
+    return start_timestamp_s + fraction * (end_timestamp_s - start_timestamp_s)
+
+
 def parse_sdk_output(
-    stdout: str, timestamp_s: float | None = None
+    stdout: str,
+    timestamp_s: float | None = None,
+    start_timestamp_s: float | None = None,
+    end_timestamp_s: float | None = None,
 ) -> tuple[list[ScanPoint], list[str]]:
     points: list[ScanPoint] = []
     unparsed_scan_lines: list[str] = []
-    sample_time_s = time.time() if timestamp_s is None else timestamp_s
+    scan_lines = [
+        line
+        for line in stdout.splitlines()
+        if SDK_SCAN_RE.search(line) is not None or "theta:" in line or "Dist:" in line
+    ]
+    if timestamp_s is not None:
+        start_time_s = timestamp_s
+        end_time_s = timestamp_s
+    else:
+        start_time_s = time.time() if start_timestamp_s is None else start_timestamp_s
+        end_time_s = start_time_s if end_timestamp_s is None else end_timestamp_s
 
+    scan_line_index = 0
     for line in stdout.splitlines():
+        is_scan_like = SDK_SCAN_RE.search(line) is not None or "theta:" in line or "Dist:" in line
+        sample_time_s = (
+            timestamp_for_index(scan_line_index, len(scan_lines), start_time_s, end_time_s)
+            if is_scan_like
+            else start_time_s
+        )
         point = parse_sdk_scan_line(line, sample_time_s)
         if point is not None:
             points.append(point)
         elif "theta:" in line or "Dist:" in line:
             unparsed_scan_lines.append(line)
+        if is_scan_like:
+            scan_line_index += 1
 
     return points, unparsed_scan_lines
 
@@ -173,6 +204,7 @@ def capture_scan_with_sdk(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     command = [str(sdk_binary), "--channel", "--serial", port, str(baud)]
+    start_timestamp_s = time.time()
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -193,8 +225,13 @@ def capture_scan_with_sdk(
             except subprocess.TimeoutExpired:
                 process.kill()
                 stdout, stderr = process.communicate()
+    end_timestamp_s = time.time()
 
-    points, unparsed_scan_lines = parse_sdk_output(stdout)
+    points, unparsed_scan_lines = parse_sdk_output(
+        stdout,
+        start_timestamp_s=start_timestamp_s,
+        end_timestamp_s=end_timestamp_s,
+    )
     write_points_csv(points, output_path)
 
     raw_log_path = None
