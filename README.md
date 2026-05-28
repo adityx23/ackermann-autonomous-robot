@@ -118,6 +118,18 @@ start, XOR checksum over bytes 0-21 at byte 22, and `0x7D` end. Output is labele
 `unverified_hypothesis` with `protocol_known: false` and `transmit_allowed: false`. It
 is offline tooling only: do not send these bytes to the C30D.
 
+Run the guarded future C30D write-test harness without transmitting anything:
+
+    python scripts/c30d_write_test_harness.py --armed --wheels-lifted --manual-enable --i-understand-risk --packet-hex "7b 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 7b 7d"
+
+Strong warning: this harness is not an enabled write path. It validates only the supplied
+24-byte packet shape: `0x7B` start byte, `0x7D` end byte, and byte 22 equal to XOR of
+bytes 0-21. Default behavior refuses to run, all guard flags are required, and even when
+all guards and a valid packet are supplied it still prints `serial_write_allowed: false`,
+`real_write_disabled_in_code: true`, and `no bytes sent`. It does not open `/dev/c30d`,
+does not write serial bytes, and must not be used as evidence that a command packet is
+valid.
+
 Summarize saved C30D feedback frame structure from passive `.bin` captures:
 
     python scripts/analyze_c30d_frame_structure.py data/c30d_captures/*.bin
