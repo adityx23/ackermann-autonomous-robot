@@ -120,6 +120,16 @@ Build a non-transmitting C30D-like command hypothesis frame offline:
     python scripts/build_c30d_hypothesis_frame.py 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
     python scripts/build_c30d_hypothesis_frame.py --payload-hex "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
 
+Build a non-transmitting Wheeltec-documented 11-byte ROS command candidate offline:
+
+    python scripts/build_c30d_ros_command_frame.py --target-x 0.0 --target-z 0.0
+
+This builder uses the Wheeltec STM32 Moving Chassis documentation candidate frame: `0x7B`
+header, two reserved/control bytes, signed int16 big-endian target X/Y/Z values, XOR
+checksum over bytes 0-8, and `0x7D` end. Ackermann helpers keep target Y at zero by
+default. Float scaling by 1000 is documentation-derived and not live-tested. Output is
+non-transmitting and prints `transmit_allowed: false` and `real_write_disabled: true`.
+
 The hypothesis builder accepts exactly 21 hex payload bytes for frame bytes 1-21, either
 positionally or through `--payload-hex`, and prints a 24-byte frame shape using `0x7B`
 start, XOR checksum over bytes 0-21 at byte 22, and `0x7D` end. Output is labeled
@@ -130,13 +140,13 @@ Run the guarded future C30D write-test harness without transmitting anything:
 
     python scripts/c30d_write_test_harness.py --armed --wheels-lifted --manual-enable --i-understand-risk --packet-hex "7b 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 7b 7d"
 
-Strong warning: this harness is not an enabled write path. It validates only the supplied
-24-byte packet shape: `0x7B` start byte, `0x7D` end byte, and byte 22 equal to XOR of
-bytes 0-21. Default behavior refuses to run, all guard flags are required, and even when
-all guards and a valid packet are supplied it still prints `serial_write_allowed: false`,
-`real_write_disabled_in_code: true`, and `no bytes sent`. It does not open `/dev/c30d`,
-does not write serial bytes, and must not be used as evidence that a command packet is
-valid.
+Strong warning: this harness is not an enabled write path. It validates only supplied
+packet shapes: old 24-byte feedback-like hypotheses and documented-candidate 11-byte ROS
+command frames. Default behavior refuses to run, all guard flags are required, and even
+when all guards and a valid packet shape are supplied it still prints
+`serial_write_allowed: false`, `real_write_disabled_in_code: true`, and `no bytes sent`.
+It does not open `/dev/c30d`, does not write serial bytes, and must not be used as
+evidence that a command packet is valid.
 
 First write experiment planning:
 

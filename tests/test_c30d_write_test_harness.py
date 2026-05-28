@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from ackermann_robot.drivers.c30d_command_hypotheses import build_hypothesis_frame
+from ackermann_robot.drivers.c30d_ros_command_frame import build_ackermann_ros_command_frame
 
 
 def load_harness_script():
@@ -35,6 +36,11 @@ def good_packet_hex() -> str:
     return frame.hex(" ")
 
 
+def good_ros_command_packet_hex() -> str:
+    frame = build_ackermann_ros_command_frame(0x00, 0x00, target_x=0, target_z=0)
+    return frame.hex(" ")
+
+
 def test_write_test_harness_refuses_without_flags(capsys):
     module = load_harness_script()
 
@@ -59,6 +65,21 @@ def test_write_test_harness_validates_good_checksum(capsys):
     assert exit_code == 0
     assert "packet_valid: true" in output
     assert "packet_validation_reasons: ok" in output
+    assert "serial_write_allowed: false" in output
+    assert "real_write_disabled_in_code: true" in output
+    assert "no bytes sent" in output
+    assert "refused: real_write_disabled_in_code" in output
+
+
+def test_write_test_harness_validates_11_byte_ros_command_without_transmit(capsys):
+    module = load_harness_script()
+
+    exit_code = module.main(guarded_args(good_ros_command_packet_hex()))
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "packet_valid: true" in output
+    assert "packet_frame_type: ros_command_candidate_11_byte" in output
     assert "serial_write_allowed: false" in output
     assert "real_write_disabled_in_code: true" in output
     assert "no bytes sent" in output

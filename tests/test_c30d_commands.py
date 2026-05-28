@@ -64,7 +64,9 @@ def test_c30d_command_protocol_status_reports_disabled(capsys):
     assert "mcu: STM32F407VET6" in output
     assert "imu_candidate: ICM20948_new_version_or_MPU6050_old_version" in output
     assert "imu_location: integrated_on_c30d" in output
+    assert "feedback_protocol: confirmed_from_observation_and_docs" in output
     assert "movement_requires_c30d_command_protocol: true" in output
+    assert "command_protocol: documented_candidate_not_live_tested" in output
     assert "command_protocol_known: false" in output
     assert "command_protocol_implemented: false" in output
     assert "command_hypothesis_builder_exists: true" in output
@@ -73,6 +75,7 @@ def test_c30d_command_protocol_status_reports_disabled(capsys):
     assert "first_write_plan_exists: true" in output
     assert "first_write_plan_approved: false" in output
     assert "real_motor_command_path: disabled" in output
+    assert "real_write_enabled: false" in output
     assert "real_write_still_disabled: true" in output
     assert "command_transmission: disabled" in output
     assert "movement_blocked_until: command_protocol_discovered_safely" in output

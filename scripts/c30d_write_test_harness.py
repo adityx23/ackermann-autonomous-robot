@@ -25,6 +25,7 @@ class PacketShapeValidation:
     reasons: tuple[str, ...]
     checksum_expected: int | None
     checksum_actual: int | None
+    frame_type: str
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--wheels-lifted", action="store_true")
     parser.add_argument("--manual-enable", action="store_true")
     parser.add_argument("--i-understand-risk", action="store_true")
-    parser.add_argument("--packet-hex", help="Twenty-four hex bytes to validate, not transmit.")
+    parser.add_argument("--packet-hex", help="Hex bytes to validate, not transmit.")
     return parser
 
 
@@ -52,28 +53,39 @@ def parse_hex_bytes(packet_hex: str) -> bytes:
     return bytes(values)
 
 
-def validate_packet_shape(packet: bytes) -> PacketShapeValidation:
+def _validate_delimited_xor_frame(
+    packet: bytes,
+    *,
+    expected_length: int,
+    checksum_index: int,
+    checksum_end_exclusive: int,
+    frame_type: str,
+) -> PacketShapeValidation:
     from ackermann_robot.drivers.c30d_checksum import xor_checksum
 
     reasons: list[str] = []
     checksum_expected: int | None = None
-    checksum_actual: int | None = packet[22] if len(packet) > 22 else None
+    checksum_actual: int | None = packet[checksum_index] if len(packet) > checksum_index else None
 
-    if len(packet) != 24:
-        reasons.append(f"expected_24_bytes_got_{len(packet)}")
+    if len(packet) != expected_length:
+        reasons.append(f"expected_{expected_length}_bytes_got_{len(packet)}")
     if len(packet) > 0 and packet[0] != 0x7B:
         reasons.append("byte_0_not_0x7b")
     elif len(packet) == 0:
         reasons.append("missing_start_byte")
-    if len(packet) > 23 and packet[23] != 0x7D:
-        reasons.append("byte_23_not_0x7d")
-    elif len(packet) <= 23:
+
+    end_index = expected_length - 1
+    if len(packet) > end_index and packet[end_index] != 0x7D:
+        reasons.append(f"byte_{end_index}_not_0x7d")
+    elif len(packet) <= end_index:
         reasons.append("missing_end_byte")
 
-    if len(packet) >= 23:
-        checksum_expected = xor_checksum(packet[:22])
-        if packet[22] != checksum_expected:
-            reasons.append("checksum_byte_22_not_xor_bytes_0_through_21")
+    if len(packet) > checksum_index:
+        checksum_expected = xor_checksum(packet[:checksum_end_exclusive])
+        if packet[checksum_index] != checksum_expected:
+            reasons.append(
+                f"checksum_byte_{checksum_index}_not_xor_bytes_0_through_{checksum_end_exclusive - 1}"
+            )
     else:
         reasons.append("missing_checksum_byte")
 
@@ -82,6 +94,25 @@ def validate_packet_shape(packet: bytes) -> PacketShapeValidation:
         reasons=tuple(reasons),
         checksum_expected=checksum_expected,
         checksum_actual=checksum_actual,
+        frame_type=frame_type,
+    )
+
+
+def validate_packet_shape(packet: bytes) -> PacketShapeValidation:
+    if len(packet) == 11:
+        return _validate_delimited_xor_frame(
+            packet,
+            expected_length=11,
+            checksum_index=9,
+            checksum_end_exclusive=9,
+            frame_type="ros_command_candidate_11_byte",
+        )
+    return _validate_delimited_xor_frame(
+        packet,
+        expected_length=24,
+        checksum_index=22,
+        checksum_end_exclusive=22,
+        frame_type="feedback_like_hypothesis_24_byte",
     )
 
 
@@ -113,6 +144,7 @@ def print_write_disabled_status() -> None:
 
 def print_packet_validation(validation: PacketShapeValidation) -> None:
     print(f"packet_valid: {format_bool(validation.valid)}")
+    print(f"packet_frame_type: {validation.frame_type}")
     print(
         "packet_validation_reasons: "
         f"{', '.join(validation.reasons) if validation.reasons else 'ok'}"
@@ -149,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
                 reasons=("invalid_packet_hex",),
                 checksum_expected=None,
                 checksum_actual=None,
+                frame_type="unknown",
             )
         )
         return 1

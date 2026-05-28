@@ -17,11 +17,9 @@ research scaffold, not an implementation plan for motor movement.
 - Feedback byte 22 is a feedback checksum byte.
 - The feedback checksum is confirmed from saved captures as XOR of bytes 0 through 21,
   with the expected checksum stored at byte 22.
-- Feedback byte 20 is often observed as `0x2A`.
-- Feedback byte 21 may be status, counter, or mode data, but this is not confirmed.
-- Feedback bytes 20-21 interpreted as big-endian uint16 produce values around
-  10750-11010 in current captures. Because the 12V battery is connected to the C30D,
-  this is tracked as `candidate_battery_mV`, but it is not confirmed as battery voltage.
+- Feedback bytes 20-21 are confirmed by Wheeltec documentation as battery voltage in
+  millivolts. This matches saved read-only captures, which produce values around
+  10750-11010 in current captures.
 - Provisional candidate battery thresholds live in `config/battery_safety.yaml`:
   warn below 10800 mV, block motor-test readiness below 10500 mV, and critical below
   10200 mV. These thresholds are safety scaffolding around a candidate field, not a
@@ -35,8 +33,10 @@ research scaffold, not an implementation plan for motor movement.
   - `int16_be_16_17`: `candidate_imu_16_17`
   - `int16_be_18_19`: `candidate_imu_18_19`
   - `uint16_be_20_21`: `candidate_battery_mV`
-- Candidate feedback field names are provisional and not confirmed protocol labels.
-- The C30D command protocol is unknown.
+- Feedback field names are confirmed at the packet-map level by observation plus Wheeltec
+  documentation, while physical scaling/sign details remain subject to calibration.
+- The C30D command protocol is documented by Wheeltec as an 11-byte ROS-to-STM32 receive
+  frame candidate, but it is not live-tested on this robot.
 - C30D command protocol knowledge is required for movement with the current wiring.
 - The real motor/steering command path is disabled.
 - The dry-run command path only creates an `UNIMPLEMENTED` placeholder and never returns
@@ -129,6 +129,50 @@ apply the feedback checksum rule to commands without command-side evidence.
 Pi-side preflight uses checksum validity and `candidate_battery_mV` only for health and
 future motor-test readiness decisions. It does not send commands, and the real movement
 path remains disabled.
+
+## Wheeltec STM32 Moving Chassis documentation update
+
+Wheeltec documentation indicates STM32 and ROS communicate through serial port 3 at
+115200 baud. The documented STM32-to-ROS feedback frame is 24 bytes, which matches the
+read-only feedback reverse engineering in this repository.
+
+Confirmed feedback packet map, using zero-based byte indexes in code and one-based byte
+positions from the documentation:
+
+- Byte 1 / index 0: `0x7B` header.
+- Byte 2 / index 1: `flag_stop`.
+- Bytes 3-8 / indexes 2-7: XYZ velocity candidates.
+- Bytes 9-20 / indexes 8-19: IMU accel/gyro candidates.
+- Bytes 21-22 / indexes 20-21: battery voltage in mV.
+- Byte 23 / index 22: BCC/XOR checksum over bytes 1-22 / indexes 0-21.
+- Byte 24 / index 23: `0x7D` end.
+
+Documented candidate ROS-to-STM32 command packet map, not live-tested on this robot:
+
+- Byte 1 / index 0: `0x7B` header.
+- Byte 2 / index 1: reserved/model bit.
+- Byte 3 / index 2: reserved/control/start bit.
+- Bytes 4-5 / indexes 3-4: target speed X signed int16 big-endian.
+- Bytes 6-7 / indexes 5-6: target speed Y signed int16 big-endian.
+- Bytes 8-9 / indexes 7-8: target speed Z signed int16 big-endian.
+- Byte 10 / index 9: BCC/XOR checksum over bytes 1-9 / indexes 0-8.
+- Byte 11 / index 10: `0x7D` end.
+
+Ackermann robots do not support Y-axis movement, so target Y should remain zero in any
+offline Ackermann command candidate. The helper in
+`ackermann_robot.drivers.c30d_ros_command_frame` scales m/s or rad/s style float values
+by 1000 according to the documentation, but this scaling remains
+`documentation_derived_candidate_scaled_by_1000_not_live_tested` until verified safely.
+
+Remaining unknowns before any live write is considered:
+
+- Exact meaning of the reserved/model byte.
+- Exact meaning of the reserved/control/start byte.
+- Exact Ackermann interpretation of target Z.
+- Stop/start bit behavior.
+
+Real serial writes remain disabled. The command frame is documented but untested on this
+hardware, so no command packet should be treated as valid for motion.
 
 ## Command Packet Hypotheses
 
