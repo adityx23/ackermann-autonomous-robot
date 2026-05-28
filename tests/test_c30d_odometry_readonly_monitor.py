@@ -10,6 +10,8 @@ from pathlib import Path
 import pytest
 
 from ackermann_robot.drivers.c30d_feedback import C30DFeedbackCandidate
+from ackermann_robot.drivers.c30d_feedback import parse_feedback_candidates
+from ackermann_robot.drivers.c30d_frames import FRAME_LENGTH
 
 
 def load_monitor_script():
@@ -39,7 +41,14 @@ def make_candidate(frame_index: int, forward: int, yaw: int) -> C30DFeedbackCand
     )
 
 
-def test_update_live_odometry_straight_only_accumulates_x_and_zeros_yaw():
+def make_frame(overrides: dict[int, int] | None = None) -> bytes:
+    frame = bytearray([0x7B, *([0x00] * (FRAME_LENGTH - 2)), 0x7D])
+    for position, value in (overrides or {}).items():
+        frame[position] = value
+    return bytes(frame)
+
+
+def test_update_live_odometry_straight_only_accumulates_x_and_preserves_raw_yaw():
     module = load_monitor_script()
     state = module.LiveOdometryState()
 
@@ -59,7 +68,7 @@ def test_update_live_odometry_straight_only_accumulates_x_and_zeros_yaw():
     assert first == module.LiveOdometrySample(
         frame_index=0,
         forward_candidate=10,
-        yaw_candidate=0,
+        yaw_candidate=99,
         delta_s_m=1.0,
         x_m=1.0,
         y_m=0.0,
@@ -68,7 +77,7 @@ def test_update_live_odometry_straight_only_accumulates_x_and_zeros_yaw():
     assert second == module.LiveOdometrySample(
         frame_index=1,
         forward_candidate=-4,
-        yaw_candidate=0,
+        yaw_candidate=-20,
         delta_s_m=-0.4,
         x_m=0.6,
         y_m=0.0,
@@ -93,6 +102,30 @@ def test_update_live_odometry_raw_yaw_candidate_preserves_yaw_counts():
     assert sample.delta_s_m == 0.75
     assert sample.x_m == 0.75
     assert sample.y_m == 0.0
+    assert sample.theta_rad == 0.0
+
+
+def test_straight_only_preserves_yaw_candidate_from_synthetic_frame():
+    module = load_monitor_script()
+    frame = make_frame(
+        {
+            2: 0x00,
+            3: 0x0A,
+            6: 0xFF,
+            7: 0xFB,
+        }
+    )
+    candidate = parse_feedback_candidates([frame])[0]
+
+    _, sample = module.update_live_odometry(
+        candidate=candidate,
+        state=module.LiveOdometryState(),
+        forward_m_per_count=0.1,
+        mode="straight_only",
+    )
+
+    assert candidate.candidate_yaw_motion == -5
+    assert sample.yaw_candidate == -5
     assert sample.theta_rad == 0.0
 
 

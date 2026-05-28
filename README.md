@@ -248,9 +248,9 @@ The live odometry monitor is read-only and provisional. It opens the C30D serial
 with a read-only file descriptor, loads `config/c30d_calibration.yaml`, converts live
 `candidate_forward_motion` counts to `delta_s_m` with `forward_m_per_count`, and prints
 compact `x_m`, `y_m`, and `theta_rad` lines. Because yaw calibration is unavailable,
-`straight_only` leaves yaw candidate output at zero and `raw_yaw_candidate` logs
-`candidate_yaw_motion` counts without converting them to radians. The script never writes
-bytes to the controller or sends motor/steering commands.
+both modes log raw `candidate_yaw_motion` counts without converting them to radians.
+`straight_only` disables yaw integration, so `theta_rad` remains fixed at zero. The script
+never writes bytes to the controller or sends motor/steering commands.
 
 Summarize one or more exported feedback candidate CSV files:
 

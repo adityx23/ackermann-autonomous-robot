@@ -105,7 +105,7 @@ def update_live_odometry(
         raise ValueError(f"unsupported live C30D odometry mode: {mode}")
 
     delta_s_m = candidate.candidate_forward_motion * forward_m_per_count
-    yaw_candidate = candidate.candidate_yaw_motion if mode == "raw_yaw_candidate" else 0
+    yaw_candidate = candidate.candidate_yaw_motion
     next_x_m = state.x_m + delta_s_m * math.cos(state.theta_rad)
     next_y_m = state.y_m + delta_s_m * math.sin(state.theta_rad)
     next_state = LiveOdometryState(
