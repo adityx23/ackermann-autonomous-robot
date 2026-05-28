@@ -306,6 +306,24 @@ parser for loading. It saves `c30d_odometry_xy.png` for `x_m` versus `y_m` and
 for each input file. These plots remain provisional until the C30D field calibration is
 confirmed.
 
+Record a unified read-only sensor run:
+
+    python scripts/record_readonly_sensor_run.py --duration 5 --enable-c30d
+
+Record C30D feedback, RPLIDAR, and one OAK-D Lite RGB frame into the same run folder:
+
+    python scripts/record_readonly_sensor_run.py --duration 5 --enable-c30d --enable-rplidar --enable-oak
+
+Use a custom output root:
+
+    python scripts/record_readonly_sensor_run.py --duration 5 --enable-c30d --output-root data/runs
+
+The unified logger creates `data/runs/run_YYYYMMDD_HHMMSS/` by default and writes
+`metadata.yaml` with start time, duration, enabled sensors, C30D port/baud, RPLIDAR
+port/baud, and OAK capture settings. Enabled sensor outputs are `c30d_feedback.csv`,
+`rplidar_scan.csv`, and `oak_rgb/oak_rgb_0000.jpg`. C30D is opened read-only and the
+logger never sends motor or steering commands.
+
 ## Logs
 
 Use `setup_logging()` from `ackermann_robot.utils.logging_utils` to create a timestamped
