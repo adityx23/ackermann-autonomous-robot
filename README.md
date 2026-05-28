@@ -120,15 +120,17 @@ Build a non-transmitting C30D-like command hypothesis frame offline:
     python scripts/build_c30d_hypothesis_frame.py 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
     python scripts/build_c30d_hypothesis_frame.py --payload-hex "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
 
-Build a non-transmitting Wheeltec-documented 11-byte ROS command candidate offline:
+Build a non-transmitting Wheeltec-documented 11-byte native host command candidate offline:
 
-    python scripts/build_c30d_ros_command_frame.py --target-x 0.0 --target-z 0.0
+    python scripts/build_c30d_host_command_frame.py --target-x 0.0 --target-z 0.0
 
-This builder uses the Wheeltec STM32 Moving Chassis documentation candidate frame: `0x7B`
-header, two reserved/control bytes, signed int16 big-endian target X/Y/Z values, XOR
-checksum over bytes 0-8, and `0x7D` end. Ackermann helpers keep target Y at zero by
-default. Float scaling by 1000 is documentation-derived and not live-tested. Output is
-non-transmitting and prints `transmit_allowed: false` and `real_write_disabled: true`.
+Wheeltec documentation uses ROS terminology, but this project treats the frame as native
+Python/serial host-to-C30D tooling only. No ROS or ROS2 runtime is required or used. This
+builder uses the documented candidate frame: `0x7B` header, two reserved/control bytes,
+signed int16 big-endian target X/Y/Z values, XOR checksum over bytes 0-8, and `0x7D` end.
+Ackermann helpers keep target Y at zero by default. Float scaling by 1000 is
+documentation-derived and not live-tested. Output is non-transmitting and prints
+`transmit_allowed: false` and `real_write_disabled: true`; real writes remain disabled.
 
 The hypothesis builder accepts exactly 21 hex payload bytes for frame bytes 1-21, either
 positionally or through `--payload-hex`, and prints a 24-byte frame shape using `0x7B`

@@ -105,7 +105,7 @@ def validate_packet_shape(packet: bytes) -> PacketShapeValidation:
             expected_length=11,
             checksum_index=9,
             checksum_end_exclusive=9,
-            frame_type="ros_command_candidate_11_byte",
+            frame_type="host_command_candidate_11_byte",
         )
     return _validate_delimited_xor_frame(
         packet,

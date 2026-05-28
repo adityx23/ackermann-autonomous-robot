@@ -14,6 +14,7 @@ def protocol_status_lines() -> list[str]:
     return [
         "C30D Command Protocol Status",
         "hardware_role: integrated_motor_servo_encoder_imu_controller",
+        "project_mode: native_no_ros",
         "board_family: WHEELTEC_C30D_candidate",
         "host_uart: serial_port_3_candidate",
         "mcu: STM32F407VET6",
@@ -26,6 +27,9 @@ def protocol_status_lines() -> list[str]:
         "feedback_access: read_only",
         "movement_requires_c30d_command_protocol: true",
         "command_protocol: documented_candidate_not_live_tested",
+        "command_frame_name: host_to_c30d_candidate",
+        "ros_runtime_used: false",
+        "ros2_runtime_used: false",
         "command_protocol_known: false",
         "command_protocol_implemented: false",
         "command_hypothesis_builder_exists: true",

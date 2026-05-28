@@ -14,8 +14,8 @@ if str(SRC_ROOT) not in sys.path:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Build an offline Wheeltec-documented 11-byte C30D ROS command candidate. "
-            "This script never transmits bytes."
+            "Build an offline Wheeltec-documented 11-byte C30D native host command "
+            "frame candidate. This script never transmits bytes."
         )
     )
     parser.add_argument("--reserved-1", type=lambda value: int(value, 0), default=0)
@@ -37,17 +37,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from ackermann_robot.drivers.c30d_ros_command_frame import (
+    from ackermann_robot.drivers.c30d_host_command_frame import (
         PROTOCOL_SOURCE,
         SCALING_LABEL,
-        build_ackermann_ros_command_frame_from_floats,
-        build_ros_command_candidate,
+        build_ackermann_host_command_frame_from_floats,
+        build_host_command_candidate,
     )
 
     args = build_parser().parse_args(argv)
     try:
         if args.raw_int16:
-            candidate = build_ros_command_candidate(
+            candidate = build_host_command_candidate(
                 reserved_1=args.reserved_1,
                 reserved_2=args.reserved_2,
                 target_x=int(args.target_x),
@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
                 target_z=int(args.target_z),
             )
         else:
-            candidate = build_ackermann_ros_command_frame_from_floats(
+            candidate = build_ackermann_host_command_frame_from_floats(
                 reserved_1=args.reserved_1,
                 reserved_2=args.reserved_2,
                 target_x=args.target_x,
@@ -72,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"checksum: 0x{candidate.checksum:02x}")
     print("transmit_allowed: false")
     print("real_write_disabled: true")
-    print("warning: documented candidate only; this must not be sent yet")
+    print("warning: native host-to-C30D serial frame candidate only; this must not be sent yet")
     return 0
 
 

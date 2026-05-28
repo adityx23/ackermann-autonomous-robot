@@ -13,7 +13,7 @@ PROTOCOL_SOURCE = "wheeltec_documentation_candidate"
 
 
 @dataclass(frozen=True)
-class C30DRosCommandFrameCandidate:
+class C30DHostCommandFrameCandidate:
     reserved_1: int
     reserved_2: int
     target_x: int
@@ -47,13 +47,14 @@ def scale_documentation_candidate(value: float, scale: int = 1000) -> int:
     return scaled
 
 
-def build_ros_command_frame(
+def build_host_command_frame(
     reserved_1: int,
     reserved_2: int,
     target_x: int,
     target_y: int,
     target_z: int,
 ) -> bytes:
+    """Build an offline native host-to-C30D command frame candidate."""
     frame = bytearray()
     frame.append(FRAME_START)
     frame.append(_validate_byte(reserved_1, "reserved_1"))
@@ -66,15 +67,15 @@ def build_ros_command_frame(
     return bytes(frame)
 
 
-def build_ros_command_candidate(
+def build_host_command_candidate(
     reserved_1: int,
     reserved_2: int,
     target_x: int,
     target_y: int,
     target_z: int,
-) -> C30DRosCommandFrameCandidate:
-    frame = build_ros_command_frame(reserved_1, reserved_2, target_x, target_y, target_z)
-    return C30DRosCommandFrameCandidate(
+) -> C30DHostCommandFrameCandidate:
+    frame = build_host_command_frame(reserved_1, reserved_2, target_x, target_y, target_z)
+    return C30DHostCommandFrameCandidate(
         reserved_1=reserved_1,
         reserved_2=reserved_2,
         target_x=target_x,
@@ -85,14 +86,14 @@ def build_ros_command_candidate(
     )
 
 
-def build_ackermann_ros_command_frame(
+def build_ackermann_host_command_frame(
     reserved_1: int,
     reserved_2: int,
     target_x: int,
     target_z: int,
     target_y: int = 0,
 ) -> bytes:
-    return build_ros_command_frame(
+    return build_host_command_frame(
         reserved_1=reserved_1,
         reserved_2=reserved_2,
         target_x=target_x,
@@ -101,14 +102,14 @@ def build_ackermann_ros_command_frame(
     )
 
 
-def build_ackermann_ros_command_frame_from_floats(
+def build_ackermann_host_command_frame_from_floats(
     reserved_1: int,
     reserved_2: int,
     target_x: float,
     target_z: float,
     target_y: float = 0.0,
-) -> C30DRosCommandFrameCandidate:
-    return build_ros_command_candidate(
+) -> C30DHostCommandFrameCandidate:
+    return build_host_command_candidate(
         reserved_1=reserved_1,
         reserved_2=reserved_2,
         target_x=scale_documentation_candidate(target_x),

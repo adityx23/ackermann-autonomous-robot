@@ -35,7 +35,7 @@ research scaffold, not an implementation plan for motor movement.
   - `uint16_be_20_21`: `candidate_battery_mV`
 - Feedback field names are confirmed at the packet-map level by observation plus Wheeltec
   documentation, while physical scaling/sign details remain subject to calibration.
-- The C30D command protocol is documented by Wheeltec as an 11-byte ROS-to-STM32 receive
+- The C30D command protocol is documented by Wheeltec as an 11-byte native host-to-STM32 serial
   frame candidate, but it is not live-tested on this robot.
 - C30D command protocol knowledge is required for movement with the current wiring.
 - The real motor/steering command path is disabled.
@@ -132,8 +132,10 @@ path remains disabled.
 
 ## Wheeltec STM32 Moving Chassis documentation update
 
-Wheeltec documentation indicates STM32 and ROS communicate through serial port 3 at
-115200 baud. The documented STM32-to-ROS feedback frame is 24 bytes, which matches the
+Wheeltec documentation uses ROS terminology and indicates STM32 and a ROS host communicate
+through serial port 3 at 115200 baud. This project does not use ROS or ROS2 runtime; it
+treats the documented packet as a native Python/serial host-to-C30D serial frame
+candidate. The documented STM32-to-host feedback frame is 24 bytes, which matches the
 read-only feedback reverse engineering in this repository.
 
 Confirmed feedback packet map, using zero-based byte indexes in code and one-based byte
@@ -147,7 +149,7 @@ positions from the documentation:
 - Byte 23 / index 22: BCC/XOR checksum over bytes 1-22 / indexes 0-21.
 - Byte 24 / index 23: `0x7D` end.
 
-Documented candidate ROS-to-STM32 command packet map, not live-tested on this robot:
+Documented candidate native host-to-STM32 serial packet map, not live-tested on this robot:
 
 - Byte 1 / index 0: `0x7B` header.
 - Byte 2 / index 1: reserved/model bit.
@@ -160,7 +162,7 @@ Documented candidate ROS-to-STM32 command packet map, not live-tested on this ro
 
 Ackermann robots do not support Y-axis movement, so target Y should remain zero in any
 offline Ackermann command candidate. The helper in
-`ackermann_robot.drivers.c30d_ros_command_frame` scales m/s or rad/s style float values
+`ackermann_robot.drivers.c30d_host_command_frame` scales m/s or rad/s style float values
 by 1000 according to the documentation, but this scaling remains
 `documentation_derived_candidate_scaled_by_1000_not_live_tested` until verified safely.
 

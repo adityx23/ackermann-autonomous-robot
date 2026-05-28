@@ -59,6 +59,7 @@ def test_c30d_command_protocol_status_reports_disabled(capsys):
     output = capsys.readouterr().out
     assert exit_code == 0
     assert "hardware_role: integrated_motor_servo_encoder_imu_controller" in output
+    assert "project_mode: native_no_ros" in output
     assert "board_family: WHEELTEC_C30D_candidate" in output
     assert "host_uart: serial_port_3_candidate" in output
     assert "mcu: STM32F407VET6" in output
@@ -67,6 +68,9 @@ def test_c30d_command_protocol_status_reports_disabled(capsys):
     assert "feedback_protocol: confirmed_from_observation_and_docs" in output
     assert "movement_requires_c30d_command_protocol: true" in output
     assert "command_protocol: documented_candidate_not_live_tested" in output
+    assert "command_frame_name: host_to_c30d_candidate" in output
+    assert "ros_runtime_used: false" in output
+    assert "ros2_runtime_used: false" in output
     assert "command_protocol_known: false" in output
     assert "command_protocol_implemented: false" in output
     assert "command_hypothesis_builder_exists: true" in output
