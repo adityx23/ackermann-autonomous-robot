@@ -325,6 +325,16 @@ provisional straight-only `c30d_odometry.csv`, `rplidar_scan.csv`, and
 `oak_rgb/oak_rgb_0000.jpg`. C30D is opened read-only and the logger never sends motor or
 steering commands.
 
+Validate and summarize a saved unified read-only sensor run without touching hardware:
+
+    python scripts/validate_readonly_sensor_run.py data/runs/run_YYYYMMDD_HHMMSS
+
+The validator reads only `metadata.yaml`, CSV files, and `oak_rgb/` images from the saved
+run folder. It prints row counts, CSV columns, first/last timestamps or frame indexes when
+available, final C30D odometry, RPLIDAR point and distance summaries, and OAK RGB image
+file sizes. It exits nonzero only when data is missing for a sensor that was enabled in
+`metadata.yaml`.
+
 ## Logs
 
 Use `setup_logging()` from `ackermann_robot.utils.logging_utils` to create a timestamped
