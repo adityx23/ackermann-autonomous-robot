@@ -254,6 +254,21 @@ null, `straight_only` assumes zero yaw change and `raw_yaw_candidate` preserves 
 `candidate_yaw_motion` counts without converting them to radians. `theta_rad` remains
 unchanged until yaw calibration is available.
 
+Plot one or more provisional C30D odometry CSV files:
+
+    python scripts/plot_c30d_odometry.py data/c30d_analysis/motion_feedback_candidates_odometry_straight_only.csv
+
+Overlay multiple odometry replays:
+
+    python scripts/plot_c30d_odometry.py data/c30d_analysis/*_odometry_straight_only.csv
+
+The odometry plotter reads only odometry CSV files and uses the standard library CSV
+parser for loading. It saves `c30d_odometry_xy.png` for `x_m` versus `y_m` and
+`c30d_odometry_x_over_frame.png` for `x_m` over `frame_index` under
+`data/c30d_analysis/` by default. It also prints the final `x_m`, `y_m`, and `theta_rad`
+for each input file. These plots remain provisional until the C30D field calibration is
+confirmed.
+
 ## Logs
 
 Use `setup_logging()` from `ackermann_robot.utils.logging_utils` to create a timestamped
