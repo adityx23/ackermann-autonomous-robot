@@ -5,13 +5,19 @@ Native non-ROS2 control stack for an Ackermann steering robot.
 ## Hardware
 
 - Raspberry Pi 5 robot supervisor
-- C30D master robot controller
-- Two encoder DC motors
-- Steering servo
+- C30D integrated motor, steering-servo, encoder, and onboard IMU controller
+- Two encoder DC motors connected directly to the C30D through 6-pin JST connectors
+- Steering servo connected directly to the C30D
+- 12V battery connected to the C30D motor/controller power path
+- Raspberry Pi powered separately from the C30D/motor power path
 - Luxonis OAK-D Lite depth camera
 - RPLIDAR C1
-- ICM-20948 IMU
+- C30D-integrated IMU feedback
 - Jetson Orin Nano for heavy compute offload
+
+With the current wiring, motor and steering commands must go through the C30D unless the
+robot is rewired with separate motor drivers, encoder wiring, steering-servo wiring, and
+IMU access. See `docs/c30d_integrated_architecture.md`.
 
 ## Development
 
@@ -98,6 +104,10 @@ Print the current C30D command protocol status:
 
     python scripts/c30d_command_protocol_status.py
 
+Search local files for C30D protocol references:
+
+    python scripts/search_c30d_protocol_references.py
+
 Run the read-only sensor preflight as part of the status report:
 
     python scripts/robot_safety_status.py --run-preflight --preflight-duration 3
@@ -118,12 +128,19 @@ The command safety scaffold is configured by `config/command_safety.yaml`. Dry-r
 default, manual enable and wheels-lifted confirmation are required for motor test
 commands, `--require-preflight` can make read-only preflight a dry-run gate, and
 `allow_serial_write` is false. C30D feedback decoding is partially understood as
-read-only candidate fields, but the real C30D motor/steering command protocol is unknown
-and not implemented. `dry_run_drive_command.py` builds only a placeholder packet marked
-`UNIMPLEMENTED`; it does not contain real bytes and must not be transmitted. Real motor
-commands are blocked until official C30D command documentation or known-good command
-examples are available. These scripts do not open `/dev/c30d` for commands, do not write
-serial bytes, and do not move motors or steering.
+read-only candidate fields from the integrated motor/servo/encoder/IMU controller, but
+the real C30D motor/steering command protocol is unknown and not implemented. Because the
+motors and steering servo are wired directly to the C30D, movement requires the C30D
+command protocol unless the hardware is rewired. `dry_run_drive_command.py` builds only a
+placeholder packet marked `UNIMPLEMENTED`; it does not contain real bytes and must not be
+transmitted. Real motor commands are blocked until official C30D command documentation or
+known-good command examples are available. These scripts do not open `/dev/c30d` for
+commands, do not write serial bytes, and do not move motors or steering.
+
+The C30D protocol research scaffold lives in `docs/c30d_protocol_research.md`. Current
+status: read-only feedback capture and candidate decoding work, the dry-run command path
+works as a safety exercise, and real command transmission is blocked until documentation
+or examples establish the actual C30D command packet format.
 
 Capture a short finite RPLIDAR C1 scan sample with the SLAMTEC SDK backend:
 

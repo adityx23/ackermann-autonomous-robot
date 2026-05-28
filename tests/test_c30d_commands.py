@@ -56,9 +56,13 @@ def test_c30d_command_protocol_status_reports_disabled(capsys):
 
     output = capsys.readouterr().out
     assert exit_code == 0
+    assert "hardware_role: integrated_motor_servo_encoder_imu_controller" in output
+    assert "imu_location: integrated_on_c30d" in output
+    assert "movement_requires_c30d_command_protocol: true" in output
     assert "command_protocol_known: false" in output
     assert "command_protocol_implemented: false" in output
     assert "real_motor_command_path: disabled" in output
+    assert "movement_blocked_until: command_protocol_discovered_safely" in output
     assert "serial_write_path: absent" in output
 
 
