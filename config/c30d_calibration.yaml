@@ -1,0 +1,27 @@
+c30d:
+  frame_length: 24
+  sample_rate_hz: 20.0
+
+  # Provisional calibration from manual 1 m forward/backward roll captures.
+  # Forward trial:  forward_sum = 13823 for +1.0 m
+  # Backward trial: forward_sum = -17175 for -1.0 m
+  # Combined absolute estimate: 2.0 / (13823 + 17175)
+  forward_m_per_count: 0.00006452
+
+  # Not calibrated yet. Requires controlled in-place or known-angle rotation.
+  yaw_rad_per_count: null
+
+  fields:
+    candidate_forward_motion: int16_be_02_03
+    candidate_yaw_motion: int16_be_06_07
+    candidate_imu_12_13: int16_be_12_13
+    candidate_imu_14_15: int16_be_14_15
+    candidate_imu_16_17: int16_be_16_17
+    candidate_imu_18_19: int16_be_18_19
+    checksum_candidate: byte_22
+
+  notes:
+    - "This calibration is provisional."
+    - "manual_roll_forward_1m had noticeable yaw drift."
+    - "manual_roll_backward_1m was cleaner."
+    - "Do not use for autonomous driving yet."
