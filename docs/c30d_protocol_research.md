@@ -19,6 +19,9 @@ research scaffold, not an implementation plan for motor movement.
   with the expected checksum stored at byte 22.
 - Feedback byte 20 is often observed as `0x2A`.
 - Feedback byte 21 may be status, counter, or mode data, but this is not confirmed.
+- Feedback bytes 20-21 interpreted as big-endian uint16 produce values around
+  10750-11010 in current captures. Because the 12V battery is connected to the C30D,
+  this is tracked as `candidate_battery_mV`, but it is not confirmed as battery voltage.
 - Feedback candidate fields exist in the current analysis scripts.
 - Candidate feedback field names are provisional and not confirmed protocol labels.
 - The C30D command protocol is unknown.
@@ -61,13 +64,15 @@ for feedback byte 22 as XOR of bytes 0 through 21 across stationary, wheel-spin,
 manual-roll captures. The feedback frame parser now reports `checksum_valid` for every
 parsed frame.
 
-Analyze the candidate status byte without assigning physical meaning:
+Analyze payload bytes 20-21 without assigning confirmed physical meaning:
 
-    python scripts/analyze_c30d_status_byte.py data/c30d_captures/*.bin
+    python scripts/analyze_c30d_payload_fields.py data/c30d_captures/*.bin
 
-The status-byte analyzer reads only saved `.bin` captures, filters to checksum-valid
-fixed-length frames, and reports byte 21 min/max, unique values, transitions, and counts.
-Byte 21 remains an unassigned status, counter, or mode candidate.
+The payload-field analyzer reads only saved `.bin` captures, filters to checksum-valid
+fixed-length frames, and reports uint16 big-endian bytes 20-21 stats, byte 20 unique
+values, byte 21 unique values, checksum-valid/invalid frame counts, and
+`candidate_battery_voltage_V = uint16_be_20_21 / 1000.0`. This remains candidate-only
+analysis, not a confirmed battery-voltage decoder.
 
 The command-packet checksum may use a similar rule, but that is not confirmed. Do not
 apply the feedback checksum rule to commands without command-side evidence.

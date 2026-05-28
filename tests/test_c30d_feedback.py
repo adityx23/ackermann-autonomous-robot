@@ -29,6 +29,8 @@ def test_parse_feedback_candidates_decodes_named_candidate_fields():
             17: 0x01,
             18: 0xFF,
             19: 0xFF,
+            20: 0x2A,
+            21: 0xF6,
             22: 0xA5,
         }
     )
@@ -44,17 +46,19 @@ def test_parse_feedback_candidates_decodes_named_candidate_fields():
     assert candidate.candidate_imu_14_15 == 32767
     assert candidate.candidate_imu_16_17 == 1
     assert candidate.candidate_imu_18_19 == -1
+    assert candidate.candidate_battery_mV == 0x2AF6
     assert candidate.checksum_candidate == 0xA5
     assert candidate.checksum_valid is False
     assert candidate.raw_frame_hex == frame.hex(" ")
 
 
 def test_parse_feedback_candidates_marks_valid_checksum():
-    frame = bytearray(make_frame({2: 0x00, 3: 0x01}))
+    frame = bytearray(make_frame({2: 0x00, 3: 0x01, 20: 0x2A, 21: 0xF6}))
     frame[22] = compute_feedback_checksum(frame)
 
     parsed = parse_feedback_candidates([bytes(frame)])
 
+    assert parsed[0].candidate_battery_mV == 10998
     assert parsed[0].checksum_candidate == frame[22]
     assert parsed[0].checksum_valid is True
 

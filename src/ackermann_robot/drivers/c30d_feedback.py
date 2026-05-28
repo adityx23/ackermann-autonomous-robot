@@ -15,6 +15,7 @@ class C30DFeedbackCandidate:
     candidate_imu_14_15: int
     candidate_imu_16_17: int
     candidate_imu_18_19: int
+    candidate_battery_mV: int
     checksum_candidate: int
     checksum_valid: bool
     raw_frame_hex: str
@@ -22,6 +23,10 @@ class C30DFeedbackCandidate:
 
 def _decode_int16_be(frame: bytes, first_byte: int) -> int:
     return int.from_bytes(frame[first_byte : first_byte + 2], "big", signed=True)
+
+
+def _decode_uint16_be(frame: bytes, first_byte: int) -> int:
+    return int.from_bytes(frame[first_byte : first_byte + 2], "big", signed=False)
 
 
 def _validate_frame(frame: bytes) -> None:
@@ -49,6 +54,7 @@ def parse_feedback_candidates(frames: list[bytes]) -> list[C30DFeedbackCandidate
                 candidate_imu_14_15=_decode_int16_be(frame, 14),
                 candidate_imu_16_17=_decode_int16_be(frame, 16),
                 candidate_imu_18_19=_decode_int16_be(frame, 18),
+                candidate_battery_mV=_decode_uint16_be(frame, 20),
                 checksum_candidate=frame[22],
                 checksum_valid=is_valid_feedback_checksum(frame),
                 raw_frame_hex=frame.hex(" "),

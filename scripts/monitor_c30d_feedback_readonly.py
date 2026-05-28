@@ -110,6 +110,7 @@ def format_live_line(candidate) -> str:
         f"{candidate.candidate_imu_14_15},"
         f"{candidate.candidate_imu_16_17},"
         f"{candidate.candidate_imu_18_19}) "
+        f"candidate_battery_mV={candidate.candidate_battery_mV} "
         f"checksum_candidate={candidate.checksum_candidate} "
         f"checksum_valid={candidate.checksum_valid}"
     )

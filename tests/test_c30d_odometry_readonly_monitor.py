@@ -36,6 +36,7 @@ def make_candidate(frame_index: int, forward: int, yaw: int) -> C30DFeedbackCand
         candidate_imu_14_15=0,
         candidate_imu_16_17=0,
         candidate_imu_18_19=0,
+        candidate_battery_mV=0,
         checksum_candidate=0,
         checksum_valid=True,
         raw_frame_hex="7b 00 7d",

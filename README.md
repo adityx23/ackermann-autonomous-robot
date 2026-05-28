@@ -231,13 +231,15 @@ every fixed 24-byte frame, and read-only live monitors print invalid checksum co
 warnings if any appear. The checksum analyzer remains useful for auditing saved captures.
 It reads only saved `.bin` files and never writes to C30D.
 
-Analyze the candidate status byte in checksum-valid feedback frames:
+Analyze candidate payload fields in checksum-valid feedback frames:
 
-    python scripts/analyze_c30d_status_byte.py data/c30d_captures/*.bin
+    python scripts/analyze_c30d_payload_fields.py data/c30d_captures/*.bin
 
-The status-byte analyzer reads saved `.bin` files only. It filters to checksum-valid
-fixed-length feedback frames, then reports byte 21 min/max, unique values, transitions,
-and counts without assigning physical meaning.
+The payload-field analyzer reads saved `.bin` files only. It filters to checksum-valid
+fixed-length feedback frames, then reports uint16 big-endian bytes 20-21 stats, byte 20
+and byte 21 unique values, checksum-valid/invalid counts, and
+`candidate_battery_voltage_V = uint16_be_20_21 / 1000.0`. This is candidate-only
+analysis, not confirmed battery voltage.
 
 Compare multiple saved C30D captures against the first file as the baseline:
 
@@ -300,7 +302,8 @@ The feedback exporter is offline and read-only. It extracts the same fixed 24-by
 frames and writes CSV rows under `data/c30d_analysis/` by default. Decoded columns remain
 candidate names only: `candidate_forward_motion` from bytes `02_03`,
 `candidate_yaw_motion` from bytes `06_07`, candidate IMU/motion fields from `12_13`,
-`14_15`, `16_17`, and `18_19`, plus `checksum_candidate` and `checksum_valid`.
+`14_15`, `16_17`, and `18_19`, `candidate_battery_mV` from bytes `20_21`, plus
+`checksum_candidate` and `checksum_valid`.
 These names reflect current hand-spin observations and are not confirmed protocol fields.
 
 Monitor live C30D feedback candidates without writing to the controller:
