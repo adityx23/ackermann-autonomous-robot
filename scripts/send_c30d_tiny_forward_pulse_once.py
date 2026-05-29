@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 from dataclasses import dataclass
 from pathlib import Path
 import sys
@@ -23,6 +24,10 @@ MAX_ABS_TARGET_X = 0.05
 DEFAULT_PULSE_DURATION_S = 0.10
 MAX_PULSE_DURATION_S = 0.15
 ZERO_SETTLE_S = 0.05
+BASELINE_FEEDBACK_S = 0.20
+POST_FEEDBACK_S = 0.20
+READ_SIZE = 256
+MOVEMENT_FORWARD_DELTA_THRESHOLD = 1
 REQUIRED_REAL_WRITE_FLAGS = (
     "armed",
     "manual_enable",
@@ -37,6 +42,8 @@ REQUIRED_REAL_WRITE_FLAGS = (
 
 class SerialHandle(Protocol):
     def write(self, data: bytes) -> int: ...
+
+    def read(self, size: int) -> bytes: ...
 
     def flush(self) -> None: ...
 
@@ -60,11 +67,33 @@ class PulseFrames:
 
 
 @dataclass(frozen=True)
+class FeedbackLogRow:
+    monotonic_timestamp: float
+    phase: str
+    frame_index: int
+    forward_candidate: int
+    yaw_candidate: int
+    candidate_battery_mV: int
+    checksum_valid: bool
+    raw_frame_hex: str
+
+
+@dataclass(frozen=True)
+class FeedbackSummary:
+    max_abs_forward_candidate_baseline: int
+    max_abs_forward_candidate_pulse_post: int
+    max_abs_yaw_candidate: int
+    invalid_checksum_count: int
+    movement_feedback_detected: bool
+
+
+@dataclass(frozen=True)
 class PulseWriteResult:
     real_write_performed: bool
     bytes_written_total: int
     pulse_target_x: float
     pulse_duration_s: float
+    feedback_summary: FeedbackSummary
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -78,6 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--baud", type=int, default=DEFAULT_BAUD)
     parser.add_argument("--target-x", type=float, default=DEFAULT_TARGET_X)
     parser.add_argument("--duration", type=float, default=DEFAULT_PULSE_DURATION_S)
+    parser.add_argument("--feedback-output", type=Path)
     parser.add_argument("--armed", action="store_true")
     parser.add_argument("--manual-enable", action="store_true")
     parser.add_argument("--wheels-lifted", action="store_true")
@@ -223,7 +253,137 @@ def run_internal_readiness(args: argparse.Namespace):
 def open_serial_handle(port: str, baud: int) -> SerialHandle:
     import serial
 
-    return serial.Serial(port=port, baudrate=baud, timeout=1.0, write_timeout=1.0)
+    return serial.Serial(port=port, baudrate=baud, timeout=0.02, write_timeout=1.0)
+
+
+def feedback_row_from_candidate(candidate, *, phase: str, timestamp: float) -> FeedbackLogRow:
+    return FeedbackLogRow(
+        monotonic_timestamp=timestamp,
+        phase=phase,
+        frame_index=candidate.frame_index,
+        forward_candidate=candidate.candidate_forward_motion,
+        yaw_candidate=candidate.candidate_yaw_motion,
+        candidate_battery_mV=candidate.candidate_battery_mV,
+        checksum_valid=candidate.checksum_valid,
+        raw_frame_hex=candidate.raw_frame_hex,
+    )
+
+
+def read_feedback_once(
+    handle: SerialHandle,
+    *,
+    buffer: bytearray,
+    phase: str,
+    rows: list[FeedbackLogRow],
+    frame_index: int,
+    clock: Callable[[], float] = time.monotonic,
+) -> int:
+    from ackermann_robot.drivers.c30d_feedback import parse_feedback_candidates
+    from monitor_c30d_feedback_readonly import extract_fixed_frames_from_buffer
+
+    chunk = handle.read(READ_SIZE)
+    if not chunk:
+        return frame_index
+    for frame in extract_fixed_frames_from_buffer(buffer, chunk):
+        candidate = parse_feedback_candidates([frame])[0]
+        candidate = candidate.__class__(
+            frame_index=frame_index,
+            candidate_forward_motion=candidate.candidate_forward_motion,
+            candidate_yaw_motion=candidate.candidate_yaw_motion,
+            candidate_imu_12_13=candidate.candidate_imu_12_13,
+            candidate_imu_14_15=candidate.candidate_imu_14_15,
+            candidate_imu_16_17=candidate.candidate_imu_16_17,
+            candidate_imu_18_19=candidate.candidate_imu_18_19,
+            candidate_battery_mV=candidate.candidate_battery_mV,
+            checksum_candidate=candidate.checksum_candidate,
+            checksum_valid=candidate.checksum_valid,
+            raw_frame_hex=candidate.raw_frame_hex,
+        )
+        rows.append(feedback_row_from_candidate(candidate, phase=phase, timestamp=clock()))
+        frame_index += 1
+    return frame_index
+
+
+def capture_feedback_phase(
+    handle: SerialHandle,
+    *,
+    buffer: bytearray,
+    phase: str,
+    duration_s: float,
+    rows: list[FeedbackLogRow],
+    frame_index: int,
+    sleep_fn: SleepFn = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> int:
+    deadline = clock() + duration_s
+    max_iterations = max(1, int(duration_s / 0.005) + 2)
+    iterations = 0
+    while clock() < deadline and iterations < max_iterations:
+        frame_index = read_feedback_once(
+            handle,
+            buffer=buffer,
+            phase=phase,
+            rows=rows,
+            frame_index=frame_index,
+            clock=clock,
+        )
+        iterations += 1
+        sleep_fn(0.005)
+    return frame_index
+
+
+def write_feedback_csv(path: Path, rows: list[FeedbackLogRow]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as output_file:
+        writer = csv.DictWriter(
+            output_file,
+            fieldnames=(
+                "monotonic_timestamp",
+                "phase",
+                "frame_index",
+                "forward_candidate",
+                "yaw_candidate",
+                "candidate_battery_mV",
+                "checksum_valid",
+                "raw_frame_hex",
+            ),
+        )
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(
+                {
+                    "monotonic_timestamp": f"{row.monotonic_timestamp:.6f}",
+                    "phase": row.phase,
+                    "frame_index": row.frame_index,
+                    "forward_candidate": row.forward_candidate,
+                    "yaw_candidate": row.yaw_candidate,
+                    "candidate_battery_mV": row.candidate_battery_mV,
+                    "checksum_valid": str(row.checksum_valid).lower(),
+                    "raw_frame_hex": row.raw_frame_hex,
+                }
+            )
+
+
+def summarize_feedback(rows: list[FeedbackLogRow]) -> FeedbackSummary:
+    baseline_forward = [abs(row.forward_candidate) for row in rows if row.phase == "baseline"]
+    pulse_post_forward = [
+        abs(row.forward_candidate) for row in rows if row.phase in {"pulse", "zero_after", "post"}
+    ]
+    max_abs_forward_candidate_baseline = max(baseline_forward, default=0)
+    max_abs_forward_candidate_pulse_post = max(pulse_post_forward, default=0)
+    max_abs_yaw_candidate = max((abs(row.yaw_candidate) for row in rows), default=0)
+    invalid_checksum_count = sum(1 for row in rows if not row.checksum_valid)
+    movement_feedback_detected = (
+        max_abs_forward_candidate_pulse_post
+        > max_abs_forward_candidate_baseline + MOVEMENT_FORWARD_DELTA_THRESHOLD
+    )
+    return FeedbackSummary(
+        max_abs_forward_candidate_baseline=max_abs_forward_candidate_baseline,
+        max_abs_forward_candidate_pulse_post=max_abs_forward_candidate_pulse_post,
+        max_abs_yaw_candidate=max_abs_yaw_candidate,
+        invalid_checksum_count=invalid_checksum_count,
+        movement_feedback_detected=movement_feedback_detected,
+    )
 
 
 def write_frame(handle: SerialHandle, frame: bytes) -> int:
@@ -238,26 +398,82 @@ def write_pulse_sequence(
     frames: PulseFrames,
     port: str,
     baud: int,
+    feedback_output: Path | None,
     serial_factory: SerialFactory = open_serial_handle,
     sleep_fn: SleepFn = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
 ) -> PulseWriteResult:
     handle = serial_factory(port, baud)
     total = 0
+    rows: list[FeedbackLogRow] = []
+    buffer = bytearray()
+    frame_index = 0
     try:
+        frame_index = capture_feedback_phase(
+            handle,
+            buffer=buffer,
+            phase="baseline",
+            duration_s=BASELINE_FEEDBACK_S,
+            rows=rows,
+            frame_index=frame_index,
+            sleep_fn=sleep_fn,
+            clock=clock,
+        )
         total += write_frame(handle, frames.zero_frame)
-        sleep_fn(ZERO_SETTLE_S)
+        frame_index = capture_feedback_phase(
+            handle,
+            buffer=buffer,
+            phase="zero_before",
+            duration_s=ZERO_SETTLE_S,
+            rows=rows,
+            frame_index=frame_index,
+            sleep_fn=sleep_fn,
+            clock=clock,
+        )
         total += write_frame(handle, frames.pulse_frame)
-        sleep_fn(frames.pulse_duration_s)
+        frame_index = capture_feedback_phase(
+            handle,
+            buffer=buffer,
+            phase="pulse",
+            duration_s=frames.pulse_duration_s,
+            rows=rows,
+            frame_index=frame_index,
+            sleep_fn=sleep_fn,
+            clock=clock,
+        )
         total += write_frame(handle, frames.zero_frame)
-        sleep_fn(ZERO_SETTLE_S)
+        frame_index = capture_feedback_phase(
+            handle,
+            buffer=buffer,
+            phase="zero_after",
+            duration_s=ZERO_SETTLE_S,
+            rows=rows,
+            frame_index=frame_index,
+            sleep_fn=sleep_fn,
+            clock=clock,
+        )
         total += write_frame(handle, frames.zero_frame)
+        capture_feedback_phase(
+            handle,
+            buffer=buffer,
+            phase="post",
+            duration_s=POST_FEEDBACK_S,
+            rows=rows,
+            frame_index=frame_index,
+            sleep_fn=sleep_fn,
+            clock=clock,
+        )
     finally:
         handle.close()
+
+    if feedback_output is not None:
+        write_feedback_csv(feedback_output, rows)
     return PulseWriteResult(
         real_write_performed=True,
         bytes_written_total=total,
         pulse_target_x=frames.pulse_target_x,
         pulse_duration_s=frames.pulse_duration_s,
+        feedback_summary=summarize_feedback(rows),
     )
 
 
@@ -272,6 +488,20 @@ def print_result(result: PulseWriteResult) -> None:
     print(f"bytes_written_total: {result.bytes_written_total}")
     print(f"pulse_target_x: {result.pulse_target_x:g}")
     print(f"pulse_duration_s: {result.pulse_duration_s:g}")
+    print(
+        "max_abs_forward_candidate during baseline: "
+        f"{result.feedback_summary.max_abs_forward_candidate_baseline}"
+    )
+    print(
+        "max_abs_forward_candidate during pulse/post: "
+        f"{result.feedback_summary.max_abs_forward_candidate_pulse_post}"
+    )
+    print(f"max_abs_yaw_candidate: {result.feedback_summary.max_abs_yaw_candidate}")
+    print(f"invalid_checksum_count: {result.feedback_summary.invalid_checksum_count}")
+    print(
+        "movement_feedback_detected: "
+        f"{str(result.feedback_summary.movement_feedback_detected).lower()}"
+    )
     print("warning: wheels may spin briefly")
 
 
@@ -280,6 +510,7 @@ def main(
     *,
     serial_factory: SerialFactory = open_serial_handle,
     sleep_fn: SleepFn = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
 ) -> int:
     args = build_parser().parse_args(argv)
     try:
@@ -328,8 +559,10 @@ def main(
         frames=frames,
         port=args.port,
         baud=args.baud,
+        feedback_output=args.feedback_output,
         serial_factory=serial_factory,
         sleep_fn=sleep_fn,
+        clock=clock,
     )
     print_result(result)
     return 0 if result.bytes_written_total == 44 else 1

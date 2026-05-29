@@ -23,7 +23,8 @@ The guarded harness in `scripts/c30d_write_test_harness.py` remains validation-o
 - Pulse frame uses a small positive `target_x`, `target_y=0`, `target_z=0`.
 - Default `--target-x 0.03` scales by 1000 to signed int16 value `30`.
 - Hard limits reject `abs(target_x) > 0.05` and duration above `0.15` seconds.
-- Real sequence is fixed: zero, sleep 0.05 seconds, pulse, sleep duration, zero, sleep 0.05 seconds, zero, close serial.
+- Real sequence is fixed: baseline feedback logging, zero, zero-before feedback logging, pulse, pulse feedback logging, zero, zero-after feedback logging, zero, post feedback logging, close serial.
+- `--feedback-output` saves a CSV with phase labels, motion candidates, battery candidate, checksum validity, and raw frame hex so a suspected wheel twitch can be checked against C30D feedback.
 
 
 ## Required Preconditions
@@ -56,9 +57,9 @@ Default behavior refuses to write. The script requires every listed guard flag, 
 
 Tiny forward pulse command shape:
 
-    python scripts/send_c30d_tiny_forward_pulse_once.py --armed --manual-enable --wheels-lifted --robot-restrained --manual-power-cutoff-ready --motor-enable-switch-reviewed --i-understand-this-may-spin-the-wheels --execute-real-pulse
+    python scripts/send_c30d_tiny_forward_pulse_once.py --armed --manual-enable --wheels-lifted --robot-restrained --manual-power-cutoff-ready --motor-enable-switch-reviewed --i-understand-this-may-spin-the-wheels --execute-real-pulse --feedback-output data/c30d_live/tiny_pulse_feedback.csv
 
-Default behavior is dry-run only. A real pulse requires all listed guard flags, runs readiness internally, prints every frame hex before writing, opens `/dev/c30d` only after all checks pass, writes the fixed zero-pulse-zero-zero sequence, flushes after each frame, and closes. On success it reports `real_write_performed`, `bytes_written_total`, `pulse_target_x`, `pulse_duration_s`, and `warning: wheels may spin briefly`.
+Default behavior is dry-run only. A real pulse requires all listed guard flags, runs readiness internally, prints every frame hex before writing, opens `/dev/c30d` only after all checks pass, logs C30D feedback on the same serial handle, writes the fixed zero-pulse-zero-zero sequence, flushes after each frame, and closes. On success it reports `real_write_performed`, `bytes_written_total`, `pulse_target_x`, `pulse_duration_s`, `max_abs_forward_candidate during baseline`, `max_abs_forward_candidate during pulse/post`, `max_abs_yaw_candidate`, `invalid_checksum_count`, `movement_feedback_detected`, and `warning: wheels may spin briefly`.
 
 ## Abort Conditions
 

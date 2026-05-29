@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import csv
 import importlib.util
 import inspect
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+from ackermann_robot.drivers.c30d_checksum import compute_feedback_checksum
 
 
 def load_pulse_script():
@@ -39,8 +42,9 @@ class FakeReadinessReport:
 
 
 class FakeSerial:
-    def __init__(self) -> None:
+    def __init__(self, read_chunks: list[bytes] | None = None) -> None:
         self.write_calls: list[bytes] = []
+        self.read_chunks = list(read_chunks or [])
         self.flush_calls = 0
         self.close_calls = 0
 
@@ -48,11 +52,36 @@ class FakeSerial:
         self.write_calls.append(data)
         return len(data)
 
+    def read(self, _size: int) -> bytes:
+        if not self.read_chunks:
+            return b""
+        return self.read_chunks.pop(0)
+
     def flush(self) -> None:
         self.flush_calls += 1
 
     def close(self) -> None:
         self.close_calls += 1
+
+
+class StepClock:
+    def __init__(self) -> None:
+        self.value = 0.0
+
+    def __call__(self) -> float:
+        return self.value
+
+    def sleep(self, seconds: float) -> None:
+        self.value += max(seconds, 1.0)
+
+
+def feedback_frame(forward: int, yaw: int = 0, battery_mv: int = 12000) -> bytes:
+    frame = bytearray([0x7B] + [0x00] * 22 + [0x7D])
+    frame[2:4] = int(forward).to_bytes(2, "big", signed=True)
+    frame[6:8] = int(yaw).to_bytes(2, "big", signed=True)
+    frame[20:22] = int(battery_mv).to_bytes(2, "big", signed=False)
+    frame[22] = compute_feedback_checksum(bytes(frame))
+    return bytes(frame)
 
 
 def test_tiny_forward_pulse_dry_run_writes_nothing(capsys):
@@ -162,7 +191,7 @@ def test_tiny_forward_pulse_sends_zero_pulse_zero_zero_when_armed(monkeypatch, c
     module = load_pulse_script()
     fake_serial = FakeSerial()
     factory_calls = []
-    sleep_calls = []
+    clock = StepClock()
 
     def fake_serial_factory(port: str, baud: int) -> FakeSerial:
         factory_calls.append((port, baud))
@@ -177,7 +206,8 @@ def test_tiny_forward_pulse_sends_zero_pulse_zero_zero_when_armed(monkeypatch, c
     exit_code = module.main(
         [*all_real_pulse_args(), "--port", "/tmp/c30d", "--baud", "57600"],
         serial_factory=fake_serial_factory,
-        sleep_fn=sleep_calls.append,
+        sleep_fn=clock.sleep,
+        clock=clock,
     )
 
     output = capsys.readouterr().out
@@ -189,7 +219,6 @@ def test_tiny_forward_pulse_sends_zero_pulse_zero_zero_when_armed(monkeypatch, c
     assert [len(frame) for frame in fake_serial.write_calls] == [11, 11, 11, 11]
     assert fake_serial.flush_calls == 4
     assert fake_serial.close_calls == 1
-    assert sleep_calls == [0.05, 0.10, 0.05]
     assert "frame_hex: 7b 00 00 00 00 00 00 00 00 7b 7d" in output
     assert f"frame_hex: {pulse_frame.hex(' ')}" in output
     assert "real_write_performed: true" in output
@@ -197,6 +226,69 @@ def test_tiny_forward_pulse_sends_zero_pulse_zero_zero_when_armed(monkeypatch, c
     assert "pulse_target_x: 0.03" in output
     assert "pulse_duration_s: 0.1" in output
     assert "warning: wheels may spin briefly" in output
+
+
+def test_tiny_forward_pulse_feedback_csv_rows_include_phase_labels(monkeypatch, tmp_path: Path):
+    module = load_pulse_script()
+    read_chunks = [
+        feedback_frame(0),
+        feedback_frame(0),
+        feedback_frame(7),
+        feedback_frame(2),
+        feedback_frame(1),
+    ]
+    fake_serial = FakeSerial(read_chunks=read_chunks)
+    clock = StepClock()
+    output_path = tmp_path / "pulse_feedback.csv"
+    monkeypatch.setattr(
+        module,
+        "run_internal_readiness",
+        lambda _args: FakeReadinessReport(readiness_allowed=True),
+    )
+
+    exit_code = module.main(
+        [*all_real_pulse_args(), "--feedback-output", str(output_path)],
+        serial_factory=lambda _port, _baud: fake_serial,
+        sleep_fn=clock.sleep,
+        clock=clock,
+    )
+
+    assert exit_code == 0
+    rows = list(csv.DictReader(output_path.open(encoding="utf-8")))
+    assert [row["phase"] for row in rows] == [
+        "baseline",
+        "zero_before",
+        "pulse",
+        "zero_after",
+        "post",
+    ]
+    assert set(rows[0]) == {
+        "monotonic_timestamp",
+        "phase",
+        "frame_index",
+        "forward_candidate",
+        "yaw_candidate",
+        "candidate_battery_mV",
+        "checksum_valid",
+        "raw_frame_hex",
+    }
+
+
+def test_tiny_forward_pulse_movement_detection_summary_on_synthetic_feedback():
+    module = load_pulse_script()
+    rows = [
+        module.FeedbackLogRow(0.0, "baseline", 0, 1, 0, 12000, True, "baseline"),
+        module.FeedbackLogRow(0.1, "pulse", 1, 5, -3, 12000, True, "pulse"),
+        module.FeedbackLogRow(0.2, "post", 2, 2, 4, 12000, False, "post"),
+    ]
+
+    summary = module.summarize_feedback(rows)
+
+    assert summary.max_abs_forward_candidate_baseline == 1
+    assert summary.max_abs_forward_candidate_pulse_post == 5
+    assert summary.max_abs_yaw_candidate == 4
+    assert summary.invalid_checksum_count == 1
+    assert summary.movement_feedback_detected is True
 
 
 def test_tiny_forward_pulse_has_no_ros_or_ros2_imports():

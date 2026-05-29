@@ -190,7 +190,7 @@ Run a dry-run only tiny forward pulse plan without transmitting anything:
 
 Execute one extremely constrained native tiny forward pulse sequence:
 
-    python scripts/send_c30d_tiny_forward_pulse_once.py --armed --manual-enable --wheels-lifted --robot-restrained --manual-power-cutoff-ready --motor-enable-switch-reviewed --i-understand-this-may-spin-the-wheels --execute-real-pulse
+    python scripts/send_c30d_tiny_forward_pulse_once.py --armed --manual-enable --wheels-lifted --robot-restrained --manual-power-cutoff-ready --motor-enable-switch-reviewed --i-understand-this-may-spin-the-wheels --execute-real-pulse --feedback-output data/c30d_live/tiny_pulse_feedback.csv
 
 Strong warning: this is the first possible motor movement script. Default behavior is
 dry-run only and writes no bytes. A real pulse requires every listed guard flag and the
@@ -199,7 +199,12 @@ host command frames using target Y and target Z fixed at zero. Defaults are
 `--target-x 0.03` and `--duration 0.10`; hard limits reject `abs(target_x) > 0.05` or
 duration above `0.15` seconds. The real sequence is fixed: zero frame, 0.05 second pause,
 pulse frame, pulse duration pause, zero frame, 0.05 second pause, zero frame, then close.
-It accepts no steering command, no target Y, no target Z, and no arbitrary packet input.
+During the same serial session it logs C30D feedback before, during, and after the pulse
+when `--feedback-output` is provided. The CSV includes monotonic timestamp, phase,
+forward/yaw candidates, candidate battery, checksum validity, and raw frame hex. The
+script prints baseline vs pulse/post forward-candidate maxima, max yaw candidate, invalid
+checksum count, and whether movement feedback was detected. It accepts no steering
+command, no target Y, no target Z, and no arbitrary packet input.
 
 Steering commands, arbitrary driving, and larger/longer motor commands are still not
 implemented or approved. Any broader motion test requires a separate explicit code change
