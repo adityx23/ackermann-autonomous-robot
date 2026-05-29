@@ -184,9 +184,26 @@ those 11 bytes once, flushes, and closes. It reports `real_write_performed: true
 `bytes_written: 11`, `frame_hex`, and `warning: zero/neutral frame only, not a motor pulse`
 only after the write returns.
 
-Motor pulse commands and steering commands are still not implemented or approved. Any
-future motion test requires a separate explicit code change and review, plus the physical
-safety checklist in the plan.
+Run a dry-run only tiny forward pulse plan without transmitting anything:
+
+    python scripts/send_c30d_tiny_forward_pulse_once.py
+
+Execute one extremely constrained native tiny forward pulse sequence:
+
+    python scripts/send_c30d_tiny_forward_pulse_once.py --armed --manual-enable --wheels-lifted --robot-restrained --manual-power-cutoff-ready --motor-enable-switch-reviewed --i-understand-this-may-spin-the-wheels --execute-real-pulse
+
+Strong warning: this is the first possible motor movement script. Default behavior is
+dry-run only and writes no bytes. A real pulse requires every listed guard flag and the
+same first-write readiness gate before opening `/dev/c30d`. The script builds only native
+host command frames using target Y and target Z fixed at zero. Defaults are
+`--target-x 0.03` and `--duration 0.10`; hard limits reject `abs(target_x) > 0.05` or
+duration above `0.15` seconds. The real sequence is fixed: zero frame, 0.05 second pause,
+pulse frame, pulse duration pause, zero frame, 0.05 second pause, zero frame, then close.
+It accepts no steering command, no target Y, no target Z, and no arbitrary packet input.
+
+Steering commands, arbitrary driving, and larger/longer motor commands are still not
+implemented or approved. Any broader motion test requires a separate explicit code change
+and review, plus the physical safety checklist in the plan.
 
 Summarize saved C30D feedback frame structure from passive `.bin` captures:
 

@@ -1,8 +1,8 @@
 # C30D First Write Experiment Plan
 
-A zero/neutral-only C30D first write path now exists at `scripts/send_c30d_zero_frame_once.py`. It is restricted to the hardcoded native host command frame `7b 00 00 00 00 00 00 00 00 7b 7d`. It does not approve motor movement, does not implement motor pulse commands, does not implement steering commands, accepts no speed/steering/target/packet inputs, and does not use ROS or ROS2.
+A zero/neutral-only C30D first write path exists at `scripts/send_c30d_zero_frame_once.py`. A separate tiny forward pulse script exists at `scripts/send_c30d_tiny_forward_pulse_once.py` for the first possible motor movement test. It is extremely constrained: no arbitrary driving, no steering commands, no target Y, no target Z, no arbitrary packet input, and no ROS or ROS2.
 
-## Approved First Write Scope
+## Approved Zero-Frame Scope
 
 - Send exactly one zero/neutral native host command frame.
 - Target X, Y, and Z must all be zero.
@@ -12,6 +12,19 @@ A zero/neutral-only C30D first write path now exists at `scripts/send_c30d_zero_
 - The exact transmitted frame must be `7b 00 00 00 00 00 00 00 00 7b 7d`.
 
 The guarded harness in `scripts/c30d_write_test_harness.py` remains validation-only and prints `serial_write_allowed: false`, `real_write_disabled_in_code: true`, and `no bytes sent`. The readiness checker in `scripts/c30d_first_write_readiness.py` is still read-only: it runs or consumes preflight results, builds the native zero host command frame internally, validates that frame shape, and sends no bytes.
+
+## Approved Tiny Forward Pulse Scope
+
+- Default behavior is dry-run only and writes no bytes.
+- Real pulse requires `--execute-real-pulse` plus every physical safety flag.
+- The readiness checker must pass before `/dev/c30d` is opened.
+- Frames must be built with the native host command frame builder.
+- Zero frame uses `target_x=0`, `target_y=0`, `target_z=0`.
+- Pulse frame uses a small positive `target_x`, `target_y=0`, `target_z=0`.
+- Default `--target-x 0.03` scales by 1000 to signed int16 value `30`.
+- Hard limits reject `abs(target_x) > 0.05` and duration above `0.15` seconds.
+- Real sequence is fixed: zero, sleep 0.05 seconds, pulse, sleep duration, zero, sleep 0.05 seconds, zero, close serial.
+
 
 ## Required Preconditions
 
@@ -26,8 +39,8 @@ All of these must be true before the zero-frame first-write script may open `/de
 - Zero invalid C30D feedback checksum frames during the stability window.
 - Checksum-valid packet only.
 - Known stop/neutral hypothesis selected.
-- Maximum test duration under 0.25 seconds for any future pulse.
-- Stop/neutral packet repeated before and after the pulse, once a stop/neutral packet is known.
+- Tiny pulse duration no greater than 0.15 seconds.
+- Zero/neutral frame sent before the pulse and repeated twice after the pulse.
 
 Readiness checker command shape:
 
@@ -40,6 +53,12 @@ Zero-frame write command shape:
     python scripts/send_c30d_zero_frame_once.py --armed --manual-enable --wheels-lifted --robot-restrained --manual-power-cutoff-ready --motor-enable-switch-reviewed --i-understand-this-sends-a-real-serial-frame --c30d-only-preflight
 
 Default behavior refuses to write. The script requires every listed guard flag, runs readiness internally, prints the exact frame hex before writing, opens `/dev/c30d` only after all checks pass, writes the 11-byte frame once, flushes, and closes. On success it reports `real_write_performed: true`, `bytes_written: 11`, `frame_hex`, and `warning: zero/neutral frame only, not a motor pulse`.
+
+Tiny forward pulse command shape:
+
+    python scripts/send_c30d_tiny_forward_pulse_once.py --armed --manual-enable --wheels-lifted --robot-restrained --manual-power-cutoff-ready --motor-enable-switch-reviewed --i-understand-this-may-spin-the-wheels --execute-real-pulse
+
+Default behavior is dry-run only. A real pulse requires all listed guard flags, runs readiness internally, prints every frame hex before writing, opens `/dev/c30d` only after all checks pass, writes the fixed zero-pulse-zero-zero sequence, flushes after each frame, and closes. On success it reports `real_write_performed`, `bytes_written_total`, `pulse_target_x`, `pulse_duration_s`, and `warning: wheels may spin briefly`.
 
 ## Abort Conditions
 
@@ -54,4 +73,4 @@ Abort immediately and remove power if any of these occur:
 
 ## Non-Approval Statement
 
-This plan approves only the hardcoded zero/neutral first write described above. It does not approve motor pulses, steering commands, arbitrary packet sending, speed inputs, steering inputs, nonzero target values, or any ROS/ROS2 path. Real motor or steering commands remain blocked until official C30D command documentation or known-good command examples establish the command protocol beyond the zero/neutral frame.
+This plan approves only the hardcoded zero/neutral first write and the constrained tiny forward pulse described above. It does not approve steering commands, arbitrary packet sending, arbitrary driving, target Y input, target Z input, larger speeds, longer durations, or any ROS/ROS2 path. Real motor or steering commands beyond this tiny pulse remain blocked until official C30D command documentation or known-good command examples establish the command protocol further.
