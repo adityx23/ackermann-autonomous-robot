@@ -81,7 +81,9 @@ class RobotSupervisor:
                 self.sleeper(max(0.0, period_s - elapsed_s))
         return self.state
 
-    def step(self, *, now_s: float | None = None, command: DriveCommand | None = None) -> RobotState:
+    def step(
+        self, *, now_s: float | None = None, command: DriveCommand | None = None
+    ) -> RobotState:
         now = self.clock() if now_s is None else now_s
         requested_command = command or DriveCommand(
             speed_mps=0.0,

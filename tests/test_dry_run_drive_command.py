@@ -89,9 +89,7 @@ def test_dry_run_drive_command_rejects_missing_manual_enable(tmp_path: Path, cap
     assert "manual_enable_required" in output
 
 
-def test_dry_run_drive_command_rejects_excessive_speed_and_reports_clamp(
-    tmp_path: Path, capsys
-):
+def test_dry_run_drive_command_rejects_excessive_speed_and_reports_clamp(tmp_path: Path, capsys):
     module = load_dry_run_script()
     config_path = tmp_path / "command_safety.yaml"
     write_command_safety_config(config_path)
@@ -116,9 +114,7 @@ def test_dry_run_drive_command_rejects_excessive_speed_and_reports_clamp(
     assert "command_filter_clamped_command" in output
 
 
-def test_dry_run_drive_command_rejects_when_required_preflight_not_passed(
-    tmp_path: Path, capsys
-):
+def test_dry_run_drive_command_rejects_when_required_preflight_not_passed(tmp_path: Path, capsys):
     module = load_dry_run_script()
     config_path = tmp_path / "command_safety.yaml"
     write_command_safety_config(config_path)

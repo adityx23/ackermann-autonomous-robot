@@ -35,7 +35,9 @@ class SafetyGateResult:
     warnings: tuple[str, ...] = field(default_factory=tuple)
 
 
-def load_command_safety_config(config_path: str | Path = "config/command_safety.yaml") -> CommandSafetyConfig:
+def load_command_safety_config(
+    config_path: str | Path = "config/command_safety.yaml",
+) -> CommandSafetyConfig:
     path = Path(config_path)
     loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(loaded, dict):

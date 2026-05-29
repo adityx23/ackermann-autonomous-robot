@@ -108,7 +108,9 @@ def replay_dead_reckoning(
     if mode not in ("straight_only", "raw_yaw_candidate"):
         raise ValueError(f"unsupported C30D dead-reckoning mode: {mode}")
     if calibration.yaw_rad_per_count is not None:
-        raise ValueError("calibrated C30D yaw odometry is not implemented for this provisional helper")
+        raise ValueError(
+            "calibrated C30D yaw odometry is not implemented for this provisional helper"
+        )
 
     x_m = 0.0
     y_m = 0.0

@@ -65,16 +65,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_DURATION_S,
         help="Run duration in seconds for streaming sensors.",
     )
-    parser.add_argument("--enable-c30d", action="store_true", help="Record read-only C30D feedback.")
+    parser.add_argument(
+        "--enable-c30d", action="store_true", help="Record read-only C30D feedback."
+    )
     parser.add_argument("--enable-rplidar", action="store_true", help="Record a RPLIDAR scan CSV.")
-    parser.add_argument("--enable-oak", action="store_true", help="Capture one OAK-D Lite RGB frame.")
+    parser.add_argument(
+        "--enable-oak", action="store_true", help="Capture one OAK-D Lite RGB frame."
+    )
     parser.add_argument(
         "--output-root",
         type=Path,
         default=DEFAULT_OUTPUT_ROOT,
         help="Root directory for timestamped run folders.",
     )
-    parser.add_argument("--c30d-port", default=DEFAULT_C30D_PORT, help="C30D read-only serial port.")
+    parser.add_argument(
+        "--c30d-port", default=DEFAULT_C30D_PORT, help="C30D read-only serial port."
+    )
     parser.add_argument("--c30d-baud", type=int, default=DEFAULT_C30D_BAUD, help="C30D baud rate.")
     parser.add_argument("--rplidar-port", default=DEFAULT_RPLIDAR_PORT, help="RPLIDAR serial port.")
     parser.add_argument(
@@ -129,7 +135,9 @@ def validate_settings(settings: RunSettings) -> None:
     if settings.duration_s <= 0.0:
         raise ValueError("--duration must be greater than zero")
     if not (settings.enable_c30d or settings.enable_rplidar or settings.enable_oak):
-        raise ValueError("enable at least one sensor with --enable-c30d, --enable-rplidar, or --enable-oak")
+        raise ValueError(
+            "enable at least one sensor with --enable-c30d, --enable-rplidar, or --enable-oak"
+        )
     if settings.oak.fps <= 0.0:
         raise ValueError("--oak-fps must be greater than zero")
     if settings.oak.preview_width <= 0 or settings.oak.preview_height <= 0:

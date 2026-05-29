@@ -142,7 +142,9 @@ def open_csv_writer(output_path: Path | None):
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_file = output_path.open("w", newline="")
-    writer = csv.DictWriter(output_file, fieldnames=[field.name for field in fields(LiveOdometrySample)])
+    writer = csv.DictWriter(
+        output_file, fieldnames=[field.name for field in fields(LiveOdometrySample)]
+    )
     writer.writeheader()
     return output_file, writer
 

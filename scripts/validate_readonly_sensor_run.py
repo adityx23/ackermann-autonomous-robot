@@ -178,8 +178,12 @@ def summarize_csv(path: Path) -> CsvSummary:
         constant_timestamp_warning=(
             row_count > 1 and first_timestamp is not None and first_timestamp == last_timestamp
         ),
-        first_frame_index=first_row.get(frame_index_column) if first_row and frame_index_column else None,
-        last_frame_index=last_row.get(frame_index_column) if last_row and frame_index_column else None,
+        first_frame_index=(
+            first_row.get(frame_index_column) if first_row and frame_index_column else None
+        ),
+        last_frame_index=(
+            last_row.get(frame_index_column) if last_row and frame_index_column else None
+        ),
         final_odometry=final_odometry,
         lidar_point_count=lidar_point_count,
         lidar_min_distance=min_distance,

@@ -17,9 +17,15 @@ def main() -> int:
     from ackermann_robot.utils.logging_utils import setup_logging
 
     parser = argparse.ArgumentParser(description="Run the mock-only dry-run robot supervisor.")
-    parser.add_argument("--config-dir", default="config", help="Directory containing config YAML files.")
-    parser.add_argument("--cycles", type=int, default=30, help="Number of supervisor cycles to run.")
-    parser.add_argument("--no-sleep", action="store_true", help="Run cycles without fixed-rate sleeping.")
+    parser.add_argument(
+        "--config-dir", default="config", help="Directory containing config YAML files."
+    )
+    parser.add_argument(
+        "--cycles", type=int, default=30, help="Number of supervisor cycles to run."
+    )
+    parser.add_argument(
+        "--no-sleep", action="store_true", help="Run cycles without fixed-rate sleeping."
+    )
     args = parser.parse_args()
 
     setup_logging(console=True, level=logging.INFO)

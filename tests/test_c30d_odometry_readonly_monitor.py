@@ -173,9 +173,9 @@ def test_format_live_odometry_line_is_compact_and_provisional_fields_are_named()
 def test_resolve_output_path_places_csv_under_live_data_dir():
     module = load_monitor_script()
 
-    assert module.resolve_output_path(Path("/tmp/custom_name"), datetime(2026, 5, 28, 1, 2, 3)) == Path(
-        "data/c30d_live/custom_name.csv"
-    )
+    assert module.resolve_output_path(
+        Path("/tmp/custom_name"), datetime(2026, 5, 28, 1, 2, 3)
+    ) == Path("data/c30d_live/custom_name.csv")
 
 
 def test_validate_args_rejects_non_positive_values():

@@ -26,7 +26,9 @@ def build_parser() -> argparse.ArgumentParser:
         description="Analyze read-only C30D checksum hypotheses from saved .bin captures."
     )
     parser.add_argument("captures", nargs="+", type=Path, help="Saved passive C30D .bin captures.")
-    parser.add_argument("--top", type=int, default=DEFAULT_TOP_LIMIT, help="Top hypotheses to print.")
+    parser.add_argument(
+        "--top", type=int, default=DEFAULT_TOP_LIMIT, help="Top hypotheses to print."
+    )
     return parser
 
 

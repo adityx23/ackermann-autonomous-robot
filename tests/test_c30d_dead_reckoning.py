@@ -186,9 +186,9 @@ def test_write_odometry_csv_uses_required_columns(tmp_path):
 
 
 def test_output_path_includes_mode():
-    assert output_path_for("data/c30d_analysis/run_feedback_candidates.csv", "out", "straight_only") == Path(
-        "out/run_feedback_candidates_odometry_straight_only.csv"
-    )
+    assert output_path_for(
+        "data/c30d_analysis/run_feedback_candidates.csv", "out", "straight_only"
+    ) == Path("out/run_feedback_candidates_odometry_straight_only.csv")
 
 
 def test_replay_script_writes_offline_odometry_csv(capsys, tmp_path):

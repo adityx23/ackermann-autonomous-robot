@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 UNIMPLEMENTED_PACKET_HEX = "UNIMPLEMENTED"
 UNIMPLEMENTED_NOTES = (
     "Real C30D motor/steering command protocol is not implemented. "

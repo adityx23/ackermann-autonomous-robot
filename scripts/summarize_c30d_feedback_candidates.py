@@ -117,9 +117,7 @@ def summarize_csv(csv_path: Path) -> FeedbackCandidateSummary:
     return FeedbackCandidateSummary(
         csv_path=csv_path,
         row_count=row_count,
-        stats_by_field={
-            field: numeric_stats(values) for field, values in values_by_field.items()
-        },
+        stats_by_field={field: numeric_stats(values) for field, values in values_by_field.items()},
     )
 
 

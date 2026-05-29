@@ -8,7 +8,9 @@ import yaml
 
 
 def load_validate_script():
-    script_path = Path(__file__).resolve().parents[1] / "scripts" / "validate_readonly_sensor_run.py"
+    script_path = (
+        Path(__file__).resolve().parents[1] / "scripts" / "validate_readonly_sensor_run.py"
+    )
     spec = importlib.util.spec_from_file_location(script_path.stem, script_path)
     assert spec is not None
     assert spec.loader is not None

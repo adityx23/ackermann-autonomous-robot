@@ -164,13 +164,22 @@ candidate battery voltage, and prints `real_write_enabled: false` plus `no bytes
 Readiness fails if the candidate battery voltage is below the warning threshold. It does
 not open a write path and does not move motors or steering.
 
-The first C30D write experiment is not enabled or approved. Any future motor test requires
-an explicit future code change that enables a controlled write path, plus the physical
-safety checklist in the plan: charged battery above warning threshold, wheels lifted,
-robot restrained, manual power cutoff available, read-only preflight PASS, checksum-valid
-packet only, known stop/neutral hypothesis selected, pulse duration under 0.25 seconds,
-and stop/neutral repeated before and after once known. The current blocker is that no
-verified stop/neutral command packet exists.
+Send the native zero/neutral host command frame exactly once:
+
+    python scripts/send_c30d_zero_frame_once.py --armed --manual-enable --wheels-lifted --robot-restrained --manual-power-cutoff-ready --motor-enable-switch-reviewed --i-understand-this-sends-a-real-serial-frame --c30d-only-preflight
+
+Strong warning: this is a real serial write path. Default behavior refuses to write, all
+listed guard flags are required, and the script runs the first-write readiness check
+internally before opening `/dev/c30d`. It only builds and validates the hardcoded native
+zero/neutral frame `7b 00 00 00 00 00 00 00 00 7b 7d` using the native host command frame
+builder. It accepts no packet, speed, steering, motor pulse, or target inputs. The script
+prints the exact frame hex before writing, then writes those 11 bytes once, flushes, and
+closes. It reports `real_write_performed: true`, `bytes_written: 11`, `frame_hex`, and
+`warning: zero/neutral frame only, not a motor pulse` only after the write returns.
+
+Motor pulse commands and steering commands are still not implemented or approved. Any
+future motion test requires a separate explicit code change and review, plus the physical
+safety checklist in the plan.
 
 Summarize saved C30D feedback frame structure from passive `.bin` captures:
 

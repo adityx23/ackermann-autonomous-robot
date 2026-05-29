@@ -108,9 +108,7 @@ def test_replay_run_folder_rejects_missing_enabled_data(tmp_path: Path):
         raise AssertionError("expected missing enabled data to fail")
 
 
-def test_replay_run_folder_skips_lidar_outputs_when_all_distances_invalid(
-    tmp_path: Path, capsys
-):
+def test_replay_run_folder_skips_lidar_outputs_when_all_distances_invalid(tmp_path: Path, capsys):
     module = load_replay_script()
     run_dir = tmp_path / "run_20260528_123456"
     run_dir.mkdir()
