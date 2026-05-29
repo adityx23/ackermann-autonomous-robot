@@ -3,8 +3,8 @@ from __future__ import annotations
 import importlib.util
 import inspect
 import sys
-from types import SimpleNamespace
 from dataclasses import dataclass
+from types import SimpleNamespace
 from pathlib import Path
 
 
@@ -96,7 +96,7 @@ def test_zero_frame_sender_refuses_without_flags(capsys):
     module = load_zero_frame_script()
     fake_serial = FakeSerial()
 
-    exit_code = module.main([], serial_factory=lambda **_: fake_serial)
+    exit_code = module.main([], serial_factory=lambda _port, _baud: fake_serial)
 
     output = capsys.readouterr().out
     assert exit_code == 1
@@ -115,7 +115,7 @@ def test_zero_frame_sender_refuses_if_readiness_false(monkeypatch, capsys):
         lambda _args: FakeReadinessReport(readiness_allowed=False),
     )
 
-    exit_code = module.main(all_guard_args(), serial_factory=lambda **_: fake_serial)
+    exit_code = module.main(all_guard_args(), serial_factory=lambda _port, _baud: fake_serial)
 
     output = capsys.readouterr().out
     assert exit_code == 1
@@ -149,7 +149,7 @@ def test_zero_frame_sender_rejects_any_nonzero_frame_path(monkeypatch, capsys):
         lambda _args: FakeReadinessReport(readiness_allowed=True),
     )
 
-    exit_code = module.main(all_guard_args(), serial_factory=lambda **_: fake_serial)
+    exit_code = module.main(all_guard_args(), serial_factory=lambda _port, _baud: fake_serial)
 
     output = capsys.readouterr().out
     assert exit_code == 1
@@ -162,16 +162,26 @@ def test_zero_frame_sender_rejects_any_nonzero_frame_path(monkeypatch, capsys):
 def test_zero_frame_sender_writes_once_when_all_checks_pass(monkeypatch, capsys):
     module = load_zero_frame_script()
     fake_serial = FakeSerial()
+    factory_calls = []
+
+    def fake_serial_factory(port: str, baud: int) -> FakeSerial:
+        factory_calls.append((port, baud))
+        return fake_serial
+
     monkeypatch.setattr(
         module,
         "run_internal_readiness",
         lambda _args: FakeReadinessReport(readiness_allowed=True),
     )
 
-    exit_code = module.main(all_guard_args(), serial_factory=lambda **_: fake_serial)
+    exit_code = module.main(
+        [*all_guard_args(), "--port", "/tmp/c30d-test", "--baud", "57600"],
+        serial_factory=fake_serial_factory,
+    )
 
     output = capsys.readouterr().out
     assert exit_code == 0
+    assert factory_calls == [("/tmp/c30d-test", 57600)]
     assert fake_serial.write_calls == [module.ZERO_NEUTRAL_FRAME]
     assert len(fake_serial.write_calls[0]) == 11
     assert fake_serial.flush_calls == 1

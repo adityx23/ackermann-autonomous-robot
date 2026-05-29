@@ -38,14 +38,7 @@ class SerialHandle(Protocol):
 
 
 class SerialFactory(Protocol):
-    def __call__(
-        self,
-        *,
-        port: str,
-        baudrate: int,
-        timeout: float,
-        write_timeout: float,
-    ) -> SerialHandle: ...
+    def __call__(self, port: str, baud: int) -> SerialHandle: ...
 
 
 @dataclass(frozen=True)
@@ -190,7 +183,7 @@ def write_validated_zero_frame_once(
     if not validation.valid:
         raise ValueError(f"invalid zero frame: {', '.join(validation.reasons)}")
 
-    handle = serial_factory(port=port, baudrate=baud, timeout=1.0, write_timeout=1.0)
+    handle = serial_factory(port, baud)
     try:
         bytes_written = handle.write(frame)
         handle.flush()
