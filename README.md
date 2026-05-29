@@ -156,26 +156,33 @@ First write experiment planning:
 
 Check first-write readiness without transmitting anything:
 
-    python scripts/c30d_first_write_readiness.py --wheels-lifted --robot-restrained --manual-power-cutoff-ready --motor-enable-switch-reviewed --i-understand-this-is-not-a-motor-test --c30d-only-preflight
+    python scripts/c30d_first_write_readiness.py --wheels-lifted --robot-restrained --manual-power-cutoff-ready --motor-enable-switch-reviewed --i-understand-this-is-not-a-motor-test
 
 The readiness checker runs or consumes read-only preflight results, builds the native zero
 host command frame internally, validates its 11-byte shape and checksum, reports the
 candidate battery voltage, and prints `real_write_enabled: false` plus `no bytes sent`.
-Readiness fails if the candidate battery voltage is below the warning threshold. It does
-not open a write path and does not move motors or steering.
+For first-write readiness it defaults to a 5 second C30D-only stability window that checks
+C30D feedback, data directories, frame rate, invalid checksum count, and battery. It does
+not require RPLIDAR or OAK for a zero/neutral C30D serial frame. Use
+`--full-sensor-preflight` when you intentionally want C30D plus RPLIDAR and OAK checked.
+Readiness fails if candidate battery voltage is below the warning threshold, C30D frame
+rate is below threshold, or any invalid checksum appears during the stability window. If
+invalid checksums appear, rerun after checking USB/serial stability. It does not open a
+write path and does not move motors or steering.
 
 Send the native zero/neutral host command frame exactly once:
 
     python scripts/send_c30d_zero_frame_once.py --armed --manual-enable --wheels-lifted --robot-restrained --manual-power-cutoff-ready --motor-enable-switch-reviewed --i-understand-this-sends-a-real-serial-frame --c30d-only-preflight
 
 Strong warning: this is a real serial write path. Default behavior refuses to write, all
-listed guard flags are required, and the script runs the first-write readiness check
-internally before opening `/dev/c30d`. It only builds and validates the hardcoded native
-zero/neutral frame `7b 00 00 00 00 00 00 00 00 7b 7d` using the native host command frame
-builder. It accepts no packet, speed, steering, motor pulse, or target inputs. The script
-prints the exact frame hex before writing, then writes those 11 bytes once, flushes, and
-closes. It reports `real_write_performed: true`, `bytes_written: 11`, `frame_hex`, and
-`warning: zero/neutral frame only, not a motor pulse` only after the write returns.
+listed guard flags are required, and the script runs the same 5 second C30D-only
+first-write readiness check internally before opening `/dev/c30d`. It only builds and
+validates the hardcoded native zero/neutral frame `7b 00 00 00 00 00 00 00 00 7b 7d`
+using the native host command frame builder. It accepts no packet, speed, steering, motor
+pulse, or target inputs. The script prints the exact frame hex before writing, then writes
+those 11 bytes once, flushes, and closes. It reports `real_write_performed: true`,
+`bytes_written: 11`, `frame_hex`, and `warning: zero/neutral frame only, not a motor pulse`
+only after the write returns.
 
 Motor pulse commands and steering commands are still not implemented or approved. Any
 future motion test requires a separate explicit code change and review, plus the physical

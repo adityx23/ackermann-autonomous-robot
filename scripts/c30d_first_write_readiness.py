@@ -22,14 +22,22 @@ REQUIRED_CONFIRMATIONS = (
     "motor_enable_switch_reviewed",
     "i_understand_this_is_not_a_motor_test",
 )
+DEFAULT_PREFLIGHT_DURATION_S = 5.0
+PREFLIGHT_MODE_C30D_ONLY = "c30d_only"
+PREFLIGHT_MODE_FULL_SENSOR = "full_sensor"
 
 
 @dataclass(frozen=True)
 class PreflightSummary:
     passed: bool
     candidate_battery_mV: float | int | None
+    frame_rate_hz: float | None = None
+    frame_rate_threshold_hz: float | None = None
+    invalid_checksum_count: int | None = None
     battery_warning_reasons: tuple[str, ...] = ()
     battery_block_reasons: tuple[str, ...] = ()
+    mode: str = PREFLIGHT_MODE_C30D_ONLY
+    duration_s: float = DEFAULT_PREFLIGHT_DURATION_S
 
 
 @dataclass(frozen=True)
@@ -46,12 +54,14 @@ class ReadinessReport:
     zero_frame: bytes
     zero_frame_validation: ZeroFrameValidation
     warning_battery_mV: int
+    preflight_mode: str
+    preflight_duration_s: float
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Read-only readiness checker for a future native C30D first-write experiment. "
+            "Read-only readiness checker for a native C30D zero-frame first-write experiment. "
             "It never sends bytes."
         )
     )
@@ -65,11 +75,21 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Optional JSON file containing read-only preflight results to consume instead of running preflight.",
     )
-    parser.add_argument("--preflight-duration", type=float, default=3.0)
+    parser.add_argument("--preflight-duration", type=float, default=DEFAULT_PREFLIGHT_DURATION_S)
     parser.add_argument(
         "--c30d-only-preflight",
-        action="store_true",
-        help="When running preflight, check C30D only and skip RPLIDAR/OAK.",
+        dest="preflight_mode",
+        action="store_const",
+        const=PREFLIGHT_MODE_C30D_ONLY,
+        default=PREFLIGHT_MODE_C30D_ONLY,
+        help="Check C30D feedback, data dirs, and battery only. This is the default.",
+    )
+    parser.add_argument(
+        "--full-sensor-preflight",
+        dest="preflight_mode",
+        action="store_const",
+        const=PREFLIGHT_MODE_FULL_SENSOR,
+        help="Check C30D plus RPLIDAR and OAK manually before reporting readiness.",
     )
     return parser
 
@@ -109,30 +129,67 @@ def build_zero_host_command_frame() -> bytes:
     )
 
 
-def preflight_summary_from_results(results: list[Any]) -> PreflightSummary:
+def _coerce_optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    return float(value)
+
+
+def _coerce_optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    return int(value)
+
+
+def preflight_summary_from_results(
+    results: list[Any],
+    mode: str = PREFLIGHT_MODE_C30D_ONLY,
+    duration_s: float = DEFAULT_PREFLIGHT_DURATION_S,
+) -> PreflightSummary:
     c30d = next((result for result in results if getattr(result, "name", None) == "c30d"), None)
     passed = all(bool(getattr(result, "passed", False)) for result in results)
     if c30d is None:
-        return PreflightSummary(passed=passed, candidate_battery_mV=None)
+        return PreflightSummary(
+            passed=passed,
+            candidate_battery_mV=None,
+            mode=mode,
+            duration_s=duration_s,
+        )
 
     details = getattr(c30d, "details", {})
     return PreflightSummary(
         passed=passed,
         candidate_battery_mV=details.get("candidate_battery_mV_min"),
+        frame_rate_hz=_coerce_optional_float(details.get("frame_rate_hz")),
+        frame_rate_threshold_hz=_coerce_optional_float(details.get("threshold_hz")),
+        invalid_checksum_count=_coerce_optional_int(details.get("invalid_checksum_count")),
         battery_warning_reasons=tuple(details.get("battery_warning_reasons", ())),
         battery_block_reasons=tuple(details.get("battery_block_reasons", ())),
+        mode=mode,
+        duration_s=duration_s,
     )
 
 
-def preflight_summary_from_json(path: Path) -> PreflightSummary:
+def preflight_summary_from_json(
+    path: Path,
+    mode: str = PREFLIGHT_MODE_C30D_ONLY,
+    duration_s: float = DEFAULT_PREFLIGHT_DURATION_S,
+) -> PreflightSummary:
     data = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(data, dict) and "preflight" in data:
         preflight = data["preflight"]
         return PreflightSummary(
             passed=bool(preflight.get("passed", False)),
             candidate_battery_mV=preflight.get("candidate_battery_mV"),
+            frame_rate_hz=_coerce_optional_float(preflight.get("frame_rate_hz")),
+            frame_rate_threshold_hz=_coerce_optional_float(
+                preflight.get("frame_rate_threshold_hz") or preflight.get("threshold_hz")
+            ),
+            invalid_checksum_count=_coerce_optional_int(preflight.get("invalid_checksum_count")),
             battery_warning_reasons=tuple(preflight.get("battery_warning_reasons", ())),
             battery_block_reasons=tuple(preflight.get("battery_block_reasons", ())),
+            mode=str(preflight.get("mode", mode)),
+            duration_s=float(preflight.get("duration_s", duration_s)),
         )
     if isinstance(data, dict) and "results" in data:
         data = data["results"]
@@ -148,22 +205,32 @@ def preflight_summary_from_json(path: Path) -> PreflightSummary:
     return PreflightSummary(
         passed=passed,
         candidate_battery_mV=details.get("candidate_battery_mV_min"),
+        frame_rate_hz=_coerce_optional_float(details.get("frame_rate_hz")),
+        frame_rate_threshold_hz=_coerce_optional_float(details.get("threshold_hz")),
+        invalid_checksum_count=_coerce_optional_int(details.get("invalid_checksum_count")),
         battery_warning_reasons=tuple(details.get("battery_warning_reasons", ())),
         battery_block_reasons=tuple(details.get("battery_block_reasons", ())),
+        mode=mode,
+        duration_s=duration_s,
     )
 
 
-def run_readonly_preflight(duration_s: float, c30d_only: bool) -> PreflightSummary:
+def run_readonly_preflight(
+    duration_s: float,
+    mode: str = PREFLIGHT_MODE_C30D_ONLY,
+) -> PreflightSummary:
     from check_robot_sensors import build_parser as build_preflight_parser
     from check_robot_sensors import print_summary, run_preflight_checks
 
     argv = ["--duration", str(duration_s)]
-    if c30d_only:
+    if mode == PREFLIGHT_MODE_C30D_ONLY:
         argv.extend(["--no-check-rplidar", "--no-check-oak"])
+    elif mode != PREFLIGHT_MODE_FULL_SENSOR:
+        raise ValueError(f"unknown preflight mode: {mode}")
     args = build_preflight_parser().parse_args(argv)
     results = run_preflight_checks(args)
     print_summary(results)
-    return preflight_summary_from_results(results)
+    return preflight_summary_from_results(results, mode=mode, duration_s=duration_s)
 
 
 def load_warning_battery_threshold() -> int:
@@ -202,6 +269,19 @@ def evaluate_readiness(
         reasons.append("candidate_battery_mV_missing")
     elif preflight.candidate_battery_mV < warning_battery_mV:
         reasons.append("candidate_battery_below_warning_threshold")
+    if preflight.frame_rate_hz is None:
+        reasons.append("c30d_frame_rate_hz_missing")
+    if preflight.frame_rate_threshold_hz is None:
+        reasons.append("c30d_frame_rate_threshold_hz_missing")
+    elif (
+        preflight.frame_rate_hz is not None
+        and preflight.frame_rate_hz < preflight.frame_rate_threshold_hz
+    ):
+        reasons.append("c30d_frame_rate_below_threshold")
+    if preflight.invalid_checksum_count is None:
+        reasons.append("invalid_checksum_count_missing")
+    elif preflight.invalid_checksum_count != 0:
+        reasons.append("invalid_c30d_checksum_frames_observed")
     if preflight.battery_warning_reasons:
         reasons.extend(preflight.battery_warning_reasons)
     if preflight.battery_block_reasons:
@@ -217,6 +297,8 @@ def evaluate_readiness(
         zero_frame=frame,
         zero_frame_validation=validation,
         warning_battery_mV=warning_battery_mV,
+        preflight_mode=preflight.mode,
+        preflight_duration_s=preflight.duration_s,
     )
 
 
@@ -227,7 +309,14 @@ def format_bool(value: bool) -> str:
 def print_report(report: ReadinessReport) -> None:
     print(f"readiness_allowed: {format_bool(report.readiness_allowed)}")
     print(f"readiness_reasons: {', '.join(report.reasons) if report.reasons else 'ok'}")
+    print(f"preflight_mode: {report.preflight_mode}")
+    print(f"preflight_duration_s: {report.preflight_duration_s:g}")
     print(f"preflight_status: {'PASS' if report.preflight.passed else 'FAIL'}")
+    print(f"c30d_frame_rate_hz: {report.preflight.frame_rate_hz}")
+    print(f"c30d_frame_rate_threshold_hz: {report.preflight.frame_rate_threshold_hz}")
+    print(f"invalid_checksum_count: {report.preflight.invalid_checksum_count}")
+    if report.preflight.invalid_checksum_count:
+        print("invalid_checksum_guidance: rerun after checking USB/serial stability")
     print(f"battery_candidate_mV: {report.preflight.candidate_battery_mV}")
     print(f"battery_warning_threshold_mV: {report.warning_battery_mV}")
     print(f"zero_frame_hex: {report.zero_frame.hex(' ')}")
@@ -244,9 +333,13 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         preflight = (
-            preflight_summary_from_json(args.preflight_results)
+            preflight_summary_from_json(
+                args.preflight_results,
+                mode=args.preflight_mode,
+                duration_s=args.preflight_duration,
+            )
             if args.preflight_results is not None
-            else run_readonly_preflight(args.preflight_duration, args.c30d_only_preflight)
+            else run_readonly_preflight(args.preflight_duration, args.preflight_mode)
         )
         threshold = load_warning_battery_threshold()
     except (OSError, ValueError) as exc:

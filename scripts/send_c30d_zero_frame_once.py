@@ -16,6 +16,7 @@ for path in (SRC_ROOT, SCRIPT_ROOT):
 
 DEFAULT_PORT = "/dev/c30d"
 DEFAULT_BAUD = 115200
+DEFAULT_PREFLIGHT_DURATION_S = 5.0
 ZERO_NEUTRAL_FRAME = bytes.fromhex("7b 00 00 00 00 00 00 00 00 7b 7d")
 REQUIRED_FLAGS = (
     "armed",
@@ -81,11 +82,21 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Optional JSON read-only preflight results for the internal readiness check.",
     )
-    parser.add_argument("--preflight-duration", type=float, default=3.0)
+    parser.add_argument("--preflight-duration", type=float, default=DEFAULT_PREFLIGHT_DURATION_S)
     parser.add_argument(
         "--c30d-only-preflight",
-        action="store_true",
-        help="When running preflight, check C30D only and skip RPLIDAR/OAK.",
+        dest="preflight_mode",
+        action="store_const",
+        const="c30d_only",
+        default="c30d_only",
+        help="Check C30D feedback, data dirs, and battery only. This is the default.",
+    )
+    parser.add_argument(
+        "--full-sensor-preflight",
+        dest="preflight_mode",
+        action="store_const",
+        const="full_sensor",
+        help="Check C30D plus RPLIDAR and OAK before writing the zero frame.",
     )
     return parser
 
@@ -138,9 +149,13 @@ def run_internal_readiness(args: argparse.Namespace):
 
     try:
         preflight = (
-            readiness.preflight_summary_from_json(args.preflight_results)
+            readiness.preflight_summary_from_json(
+                args.preflight_results,
+                mode=args.preflight_mode,
+                duration_s=args.preflight_duration,
+            )
             if args.preflight_results is not None
-            else readiness.run_readonly_preflight(args.preflight_duration, args.c30d_only_preflight)
+            else readiness.run_readonly_preflight(args.preflight_duration, args.preflight_mode)
         )
         threshold = readiness.load_warning_battery_threshold()
     except (OSError, ValueError) as exc:

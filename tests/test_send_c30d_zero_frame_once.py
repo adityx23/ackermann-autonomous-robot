@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import inspect
 import sys
+from types import SimpleNamespace
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -50,6 +51,45 @@ class FakeSerial:
 
     def close(self) -> None:
         self.close_calls += 1
+
+
+def test_zero_frame_sender_defaults_to_five_second_c30d_only_preflight():
+    module = load_zero_frame_script()
+
+    args = module.build_parser().parse_args([])
+
+    assert args.preflight_duration == 5.0
+    assert args.preflight_mode == "c30d_only"
+
+
+def test_zero_frame_sender_passes_preflight_duration_into_readiness(monkeypatch):
+    module = load_zero_frame_script()
+    calls = {}
+    fake_report = FakeReadinessReport(readiness_allowed=True)
+
+    fake_readiness = SimpleNamespace(
+        run_readonly_preflight=lambda duration_s, mode: calls.setdefault(
+            "preflight", (duration_s, mode)
+        )
+        or "preflight",
+        preflight_summary_from_json=lambda path, mode, duration_s: calls.setdefault(
+            "json", (path, mode, duration_s)
+        )
+        or "preflight",
+        load_warning_battery_threshold=lambda: 10800,
+        evaluate_readiness=lambda confirmations, preflight, threshold: fake_report,
+        print_report=lambda report: calls.setdefault("printed", report),
+    )
+    monkeypatch.setitem(sys.modules, "c30d_first_write_readiness", fake_readiness)
+    args = module.build_parser().parse_args(
+        ["--preflight-duration", "7.5", "--full-sensor-preflight"]
+    )
+
+    report = module.run_internal_readiness(args)
+
+    assert report is fake_report
+    assert calls["preflight"] == (7.5, "full_sensor")
+    assert calls["printed"] is fake_report
 
 
 def test_zero_frame_sender_refuses_without_flags(capsys):
