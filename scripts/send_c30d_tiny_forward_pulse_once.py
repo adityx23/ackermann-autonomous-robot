@@ -23,6 +23,8 @@ DEFAULT_TARGET_X = 0.03
 MAX_ABS_TARGET_X = 0.05
 DEFAULT_PULSE_DURATION_S = 0.10
 MAX_PULSE_DURATION_S = 0.15
+DEFAULT_RESERVED_1 = 0x00
+DEFAULT_RESERVED_2 = 0x00
 ZERO_SETTLE_S = 0.05
 BASELINE_FEEDBACK_S = 0.20
 POST_FEEDBACK_S = 0.20
@@ -61,6 +63,8 @@ SleepFn = Callable[[float], None]
 class PulseFrames:
     zero_frame: bytes
     pulse_frame: bytes
+    reserved_1: int
+    reserved_2: int
     pulse_target_x: float
     pulse_target_x_scaled: int
     pulse_duration_s: float
@@ -107,6 +111,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--baud", type=int, default=DEFAULT_BAUD)
     parser.add_argument("--target-x", type=float, default=DEFAULT_TARGET_X)
     parser.add_argument("--duration", type=float, default=DEFAULT_PULSE_DURATION_S)
+    parser.add_argument(
+        "--reserved-1", type=parse_reserved_control_byte, default=DEFAULT_RESERVED_1
+    )
+    parser.add_argument(
+        "--reserved-2", type=parse_reserved_control_byte, default=DEFAULT_RESERVED_2
+    )
     parser.add_argument("--feedback-output", type=Path)
     parser.add_argument("--armed", action="store_true")
     parser.add_argument("--manual-enable", action="store_true")
@@ -140,6 +150,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def parse_reserved_control_byte(value: str) -> int:
+    try:
+        parsed = int(value, 0)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("reserved byte must be 0x00 or 0x01") from exc
+    if parsed not in (0x00, 0x01):
+        raise argparse.ArgumentTypeError("reserved byte must be 0x00 or 0x01")
+    return parsed
+
+
 def missing_real_write_flags(args: argparse.Namespace) -> tuple[str, ...]:
     return tuple(name for name in REQUIRED_REAL_WRITE_FLAGS if not getattr(args, name))
 
@@ -157,7 +177,12 @@ def validate_limits(target_x: float, duration_s: float) -> tuple[str, ...]:
     return tuple(reasons)
 
 
-def build_pulse_frames(target_x: float, duration_s: float) -> PulseFrames:
+def build_pulse_frames(
+    target_x: float,
+    duration_s: float,
+    reserved_1: int = DEFAULT_RESERVED_1,
+    reserved_2: int = DEFAULT_RESERVED_2,
+) -> PulseFrames:
     from ackermann_robot.drivers.c30d_host_command_frame import (
         build_ackermann_host_command_frame,
         scale_documentation_candidate,
@@ -166,18 +191,22 @@ def build_pulse_frames(target_x: float, duration_s: float) -> PulseFrames:
     limit_reasons = validate_limits(target_x, duration_s)
     if limit_reasons:
         raise ValueError(", ".join(limit_reasons))
+    if reserved_1 not in (0x00, 0x01):
+        raise ValueError("reserved_1_must_be_0x00_or_0x01")
+    if reserved_2 not in (0x00, 0x01):
+        raise ValueError("reserved_2_must_be_0x00_or_0x01")
 
     scaled_target_x = scale_documentation_candidate(target_x)
     zero_frame = build_ackermann_host_command_frame(
-        reserved_1=0,
-        reserved_2=0,
+        reserved_1=reserved_1,
+        reserved_2=reserved_2,
         target_x=0,
         target_y=0,
         target_z=0,
     )
     pulse_frame = build_ackermann_host_command_frame(
-        reserved_1=0,
-        reserved_2=0,
+        reserved_1=reserved_1,
+        reserved_2=reserved_2,
         target_x=scaled_target_x,
         target_y=0,
         target_z=0,
@@ -187,6 +216,8 @@ def build_pulse_frames(target_x: float, duration_s: float) -> PulseFrames:
     return PulseFrames(
         zero_frame=zero_frame,
         pulse_frame=pulse_frame,
+        reserved_1=reserved_1,
+        reserved_2=reserved_2,
         pulse_target_x=target_x,
         pulse_target_x_scaled=scaled_target_x,
         pulse_duration_s=duration_s,
@@ -478,6 +509,8 @@ def write_pulse_sequence(
 
 
 def print_planned_frames(frames: PulseFrames) -> None:
+    print(f"reserved_1: 0x{frames.reserved_1:02x}")
+    print(f"reserved_2: 0x{frames.reserved_2:02x}")
     print(f"zero_frame_hex: {frames.zero_frame.hex(' ')}")
     print(f"pulse_frame_hex: {frames.pulse_frame.hex(' ')}")
     print(f"pulse_target_x_scaled_int16: {frames.pulse_target_x_scaled}")
@@ -514,7 +547,12 @@ def main(
 ) -> int:
     args = build_parser().parse_args(argv)
     try:
-        frames = build_pulse_frames(args.target_x, args.duration)
+        frames = build_pulse_frames(
+            args.target_x,
+            args.duration,
+            reserved_1=args.reserved_1,
+            reserved_2=args.reserved_2,
+        )
     except ValueError as exc:
         print(f"refused: {exc}")
         print("real_write_performed: false")

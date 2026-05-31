@@ -5,9 +5,11 @@ import importlib.util
 import inspect
 import sys
 from dataclasses import dataclass
+
+import pytest
 from pathlib import Path
 
-from ackermann_robot.drivers.c30d_checksum import compute_feedback_checksum
+from ackermann_robot.drivers.c30d_checksum import compute_feedback_checksum, xor_checksum
 
 
 def load_pulse_script():
@@ -82,6 +84,64 @@ def feedback_frame(forward: int, yaw: int = 0, battery_mv: int = 12000) -> bytes
     frame[20:22] = int(battery_mv).to_bytes(2, "big", signed=False)
     frame[22] = compute_feedback_checksum(bytes(frame))
     return bytes(frame)
+
+
+def test_reserved_bytes_default_to_zero():
+    module = load_pulse_script()
+
+    frames = module.build_pulse_frames(0.03, 0.10)
+
+    assert frames.reserved_1 == 0x00
+    assert frames.reserved_2 == 0x00
+    assert frames.zero_frame[1] == 0x00
+    assert frames.zero_frame[2] == 0x00
+    assert frames.pulse_frame[1] == 0x00
+    assert frames.pulse_frame[2] == 0x00
+
+
+def test_reserved_bytes_zero_and_one_are_accepted(capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+
+    exit_code = module.main(
+        ["--reserved-1", "0x01", "--reserved-2", "1"],
+        serial_factory=lambda _port, _baud: fake_serial,
+    )
+
+    output = capsys.readouterr().out
+    frames = module.build_pulse_frames(0.03, 0.10, reserved_1=1, reserved_2=1)
+    assert exit_code == 0
+    assert "reserved_1: 0x01" in output
+    assert "reserved_2: 0x01" in output
+    assert f"zero_frame_hex: {frames.zero_frame.hex(' ')}" in output
+    assert f"pulse_frame_hex: {frames.pulse_frame.hex(' ')}" in output
+    assert fake_serial.write_calls == []
+
+
+def test_reserved_bytes_above_one_are_rejected():
+    module = load_pulse_script()
+
+    with pytest.raises(SystemExit):
+        module.main(["--reserved-1", "2"])
+    with pytest.raises(SystemExit):
+        module.main(["--reserved-2", "0x02"])
+    with pytest.raises(ValueError, match="reserved_1_must_be_0x00_or_0x01"):
+        module.build_pulse_frames(0.03, 0.10, reserved_1=2)
+    with pytest.raises(ValueError, match="reserved_2_must_be_0x00_or_0x01"):
+        module.build_pulse_frames(0.03, 0.10, reserved_2=2)
+
+
+def test_generated_reserved_byte_frame_checksums_are_correct():
+    module = load_pulse_script()
+
+    frames = module.build_pulse_frames(0.05, 0.15, reserved_1=1, reserved_2=0)
+
+    assert frames.zero_frame[9] == xor_checksum(frames.zero_frame[:9])
+    assert frames.pulse_frame[9] == xor_checksum(frames.pulse_frame[:9])
+    assert frames.zero_frame[5:7] == b"\x00\x00"
+    assert frames.zero_frame[7:9] == b"\x00\x00"
+    assert frames.pulse_frame[5:7] == b"\x00\x00"
+    assert frames.pulse_frame[7:9] == b"\x00\x00"
 
 
 def test_tiny_forward_pulse_dry_run_writes_nothing(capsys):
@@ -247,7 +307,15 @@ def test_tiny_forward_pulse_feedback_csv_rows_include_phase_labels(monkeypatch, 
     )
 
     exit_code = module.main(
-        [*all_real_pulse_args(), "--feedback-output", str(output_path)],
+        [
+            *all_real_pulse_args(),
+            "--reserved-1",
+            "1",
+            "--reserved-2",
+            "0x01",
+            "--feedback-output",
+            str(output_path),
+        ],
         serial_factory=lambda _port, _baud: fake_serial,
         sleep_fn=clock.sleep,
         clock=clock,

@@ -202,8 +202,10 @@ pulse frame, pulse duration pause, zero frame, 0.05 second pause, zero frame, th
 During the same serial session it logs C30D feedback before, during, and after the pulse
 when `--feedback-output` is provided. The CSV includes monotonic timestamp, phase,
 forward/yaw candidates, candidate battery, checksum validity, and raw frame hex. The
-script prints baseline vs pulse/post forward-candidate maxima, max yaw candidate, invalid
-checksum count, and whether movement feedback was detected. It accepts no steering
+script prints `reserved_1`, `reserved_2`, `zero_frame_hex`, `pulse_frame_hex`, baseline
+vs pulse/post forward-candidate maxima, max yaw candidate, invalid checksum count, and
+whether movement feedback was detected. It accepts `--reserved-1` and `--reserved-2`
+only as `0x00` or `0x01` for the reserved/control-byte experiment. It accepts no steering
 command, no target Y, no target Z, and no arbitrary packet input.
 
 Steering commands, arbitrary driving, and larger/longer motor commands are still not
