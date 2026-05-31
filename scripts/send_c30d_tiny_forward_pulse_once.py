@@ -23,11 +23,14 @@ DEFAULT_PREFLIGHT_DURATION_S = 5.0
 DEFAULT_C30D_WARMUP_DURATION_S = 1.0
 DEFAULT_TARGET_X = 0.03
 MAX_ABS_TARGET_X = 0.05
+MAX_ABS_DEADBAND_PROBE_TARGET_X = 0.10
 DEFAULT_PULSE_DURATION_S = 0.10
 MAX_PULSE_DURATION_S = 0.15
 MAX_EXTENDED_LOW_SPEED_STREAM_DURATION_S = 0.50
+MAX_DEADBAND_PROBE_DURATION_S = 0.25
 DEFAULT_STREAM_RATE_HZ = 20.0
 MAX_STREAM_RATE_HZ = 50.0
+MAX_DEADBAND_PROBE_STREAM_RATE_HZ = 20.0
 ZERO_STREAM_DURATION_S = 0.20
 STOP_STREAM_DURATION_S = 0.30
 DEFAULT_READINESS_RETRIES = 1
@@ -140,6 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--stream-mode", action="store_true")
     parser.add_argument("--stream-rate-hz", type=float, default=DEFAULT_STREAM_RATE_HZ)
     parser.add_argument("--allow-extended-low-speed-stream", action="store_true")
+    parser.add_argument("--allow-deadband-probe", action="store_true")
     parser.add_argument(
         "--reserved-1", type=parse_reserved_control_byte, default=DEFAULT_RESERVED_1
     )
@@ -246,23 +250,33 @@ def validate_limits(
     duration_s: float,
     stream_rate_hz: float = DEFAULT_STREAM_RATE_HZ,
     max_duration_s: float = MAX_PULSE_DURATION_S,
+    max_abs_target_x: float = MAX_ABS_TARGET_X,
+    max_stream_rate_hz: float = MAX_STREAM_RATE_HZ,
 ) -> tuple[str, ...]:
     reasons: list[str] = []
     if target_x <= 0.0:
         reasons.append("target_x_must_be_positive_forward_only")
-    if abs(target_x) > MAX_ABS_TARGET_X:
-        reasons.append("target_x_exceeds_0.05_limit")
+    if abs(target_x) > max_abs_target_x:
+        if max_abs_target_x == MAX_ABS_DEADBAND_PROBE_TARGET_X:
+            reasons.append("target_x_exceeds_0.10_deadband_probe_limit")
+        else:
+            reasons.append("target_x_exceeds_0.05_limit")
     if duration_s <= 0.0:
         reasons.append("duration_must_be_positive")
     if duration_s > max_duration_s:
-        if max_duration_s == MAX_EXTENDED_LOW_SPEED_STREAM_DURATION_S:
+        if max_duration_s == MAX_DEADBAND_PROBE_DURATION_S:
+            reasons.append("duration_exceeds_0.25_deadband_probe_limit")
+        elif max_duration_s == MAX_EXTENDED_LOW_SPEED_STREAM_DURATION_S:
             reasons.append("duration_exceeds_0.50_extended_stream_limit")
         else:
             reasons.append("duration_exceeds_0.15_limit")
     if stream_rate_hz <= 0.0:
         reasons.append("stream_rate_hz_must_be_positive")
-    if stream_rate_hz > MAX_STREAM_RATE_HZ:
-        reasons.append("stream_rate_hz_exceeds_50_limit")
+    if stream_rate_hz > max_stream_rate_hz:
+        if max_stream_rate_hz == MAX_DEADBAND_PROBE_STREAM_RATE_HZ:
+            reasons.append("stream_rate_hz_exceeds_20_deadband_probe_limit")
+        else:
+            reasons.append("stream_rate_hz_exceeds_50_limit")
     return tuple(reasons)
 
 
@@ -272,13 +286,19 @@ def build_pulse_frames(
     reserved_1: int = DEFAULT_RESERVED_1,
     reserved_2: int = DEFAULT_RESERVED_2,
     max_duration_s: float = MAX_PULSE_DURATION_S,
+    max_abs_target_x: float = MAX_ABS_TARGET_X,
 ) -> PulseFrames:
     from ackermann_robot.drivers.c30d_host_command_frame import (
         build_ackermann_host_command_frame,
         scale_documentation_candidate,
     )
 
-    limit_reasons = validate_limits(target_x, duration_s, max_duration_s=max_duration_s)
+    limit_reasons = validate_limits(
+        target_x,
+        duration_s,
+        max_duration_s=max_duration_s,
+        max_abs_target_x=max_abs_target_x,
+    )
     if limit_reasons:
         raise ValueError(", ".join(limit_reasons))
     if reserved_1 not in (0x00, 0x01):
@@ -336,7 +356,7 @@ def validate_frame(frame: bytes, *, expect_zero_target_x: bool) -> None:
         target_x = int.from_bytes(frame[3:5], "big", signed=True)
         if target_x <= 0:
             reasons.append("pulse_frame_target_x_not_positive")
-        if abs(target_x) > int(MAX_ABS_TARGET_X * 1000):
+        if abs(target_x) > int(MAX_ABS_DEADBAND_PROBE_TARGET_X * 1000):
             reasons.append("pulse_frame_target_x_exceeds_scaled_limit")
     if reasons:
         raise ValueError(", ".join(reasons))
@@ -830,9 +850,15 @@ def print_stream_plan(
     pulse_duration_s: float,
     allow_extended_low_speed_stream: bool,
     extended_duration_limit_s: float,
+    allow_deadband_probe: bool,
+    deadband_probe_target_limit: float,
+    deadband_probe_duration_limit: float,
 ) -> None:
     print(f"allow_extended_low_speed_stream: {str(allow_extended_low_speed_stream).lower()}")
     print(f"extended_duration_limit_s: {extended_duration_limit_s:g}")
+    print(f"allow_deadband_probe: {str(allow_deadband_probe).lower()}")
+    print(f"deadband_probe_target_limit: {deadband_probe_target_limit:g}")
+    print(f"deadband_probe_duration_limit: {deadband_probe_duration_limit:g}")
     print(f"stream_mode: {str(stream_mode).lower()}")
     print(f"stream_rate_hz: {stream_rate_hz:g}")
     print(f"zero_stream_duration_s: {ZERO_STREAM_DURATION_S:g}")
@@ -886,19 +912,34 @@ def main(
     clock: Callable[[], float] = time.monotonic,
 ) -> int:
     args = build_parser().parse_args(argv)
-    extended_low_speed_stream = bool(args.stream_mode and args.allow_extended_low_speed_stream)
-    duration_limit_s = (
-        MAX_EXTENDED_LOW_SPEED_STREAM_DURATION_S
-        if extended_low_speed_stream
-        else MAX_PULSE_DURATION_S
+    deadband_probe = bool(args.stream_mode and args.allow_deadband_probe)
+    extended_low_speed_stream = bool(
+        args.stream_mode and args.allow_extended_low_speed_stream and not deadband_probe
     )
+    duration_limit_s = MAX_PULSE_DURATION_S
+    target_limit_s = MAX_ABS_TARGET_X
+    stream_rate_limit_hz = MAX_STREAM_RATE_HZ
+    pre_limit_reasons: list[str] = []
+    if args.allow_deadband_probe and not args.stream_mode:
+        pre_limit_reasons.append("deadband_probe_requires_stream_mode")
+    if deadband_probe:
+        duration_limit_s = MAX_DEADBAND_PROBE_DURATION_S
+        target_limit_s = MAX_ABS_DEADBAND_PROBE_TARGET_X
+        stream_rate_limit_hz = MAX_DEADBAND_PROBE_STREAM_RATE_HZ
+    elif extended_low_speed_stream:
+        duration_limit_s = MAX_EXTENDED_LOW_SPEED_STREAM_DURATION_S
     try:
-        limit_reasons = validate_limits(
-            args.target_x,
-            args.duration,
-            args.stream_rate_hz,
-            max_duration_s=duration_limit_s,
-        )
+        limit_reasons = [
+            *pre_limit_reasons,
+            *validate_limits(
+                args.target_x,
+                args.duration,
+                args.stream_rate_hz,
+                max_duration_s=duration_limit_s,
+                max_abs_target_x=target_limit_s,
+                max_stream_rate_hz=stream_rate_limit_hz,
+            ),
+        ]
         if limit_reasons:
             raise ValueError(", ".join(limit_reasons))
         frames = build_pulse_frames(
@@ -907,6 +948,7 @@ def main(
             reserved_1=args.reserved_1,
             reserved_2=args.reserved_2,
             max_duration_s=duration_limit_s,
+            max_abs_target_x=target_limit_s,
         )
     except ValueError as exc:
         print(f"refused: {exc}")
@@ -920,6 +962,9 @@ def main(
         pulse_duration_s=frames.pulse_duration_s,
         allow_extended_low_speed_stream=args.allow_extended_low_speed_stream,
         extended_duration_limit_s=duration_limit_s,
+        allow_deadband_probe=args.allow_deadband_probe,
+        deadband_probe_target_limit=target_limit_s,
+        deadband_probe_duration_limit=duration_limit_s,
     )
     print(f"pulse_target_x: {frames.pulse_target_x:g}")
     print(f"pulse_duration_s: {frames.pulse_duration_s:g}")

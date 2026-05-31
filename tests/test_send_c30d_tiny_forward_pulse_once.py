@@ -226,6 +226,93 @@ def test_tiny_forward_pulse_dry_run_stream_mode_writes_nothing(capsys):
     assert fake_serial.write_calls == []
 
 
+def test_tiny_forward_pulse_rejects_deadband_target_without_probe_flag(capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+
+    exit_code = module.main(
+        ["--stream-mode", "--target-x", "0.10"],
+        serial_factory=lambda _port, _baud: fake_serial,
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "target_x_exceeds_0.05_limit" in output
+    assert fake_serial.write_calls == []
+
+
+def test_tiny_forward_pulse_accepts_deadband_target_with_stream_mode_and_probe_flag(capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+
+    exit_code = module.main(
+        [
+            "--stream-mode",
+            "--allow-deadband-probe",
+            "--target-x",
+            "0.10",
+            "--duration",
+            "0.25",
+        ],
+        serial_factory=lambda _port, _baud: fake_serial,
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "allow_deadband_probe: true" in output
+    assert "deadband_probe_target_limit: 0.1" in output
+    assert "deadband_probe_duration_limit: 0.25" in output
+    assert "stream_mode: true" in output
+    assert "pulse_target_x: 0.1" in output
+    assert "pulse_stream_duration_s: 0.25" in output
+    assert fake_serial.write_calls == []
+
+
+def test_tiny_forward_pulse_rejects_deadband_probe_without_stream_mode(capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+
+    exit_code = module.main(
+        ["--allow-deadband-probe", "--target-x", "0.10"],
+        serial_factory=lambda _port, _baud: fake_serial,
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "deadband_probe_requires_stream_mode" in output
+    assert fake_serial.write_calls == []
+
+
+def test_tiny_forward_pulse_rejects_target_x_above_deadband_probe_limit(capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+
+    exit_code = module.main(
+        ["--stream-mode", "--allow-deadband-probe", "--target-x", "0.101"],
+        serial_factory=lambda _port, _baud: fake_serial,
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "target_x_exceeds_0.10_deadband_probe_limit" in output
+    assert fake_serial.write_calls == []
+
+
+def test_tiny_forward_pulse_rejects_duration_above_deadband_probe_limit(capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+
+    exit_code = module.main(
+        ["--stream-mode", "--allow-deadband-probe", "--duration", "0.251"],
+        serial_factory=lambda _port, _baud: fake_serial,
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "duration_exceeds_0.25_deadband_probe_limit" in output
+    assert fake_serial.write_calls == []
+
+
 def test_tiny_forward_pulse_refuses_target_x_above_limit(capsys):
     module = load_pulse_script()
     fake_serial = FakeSerial()
