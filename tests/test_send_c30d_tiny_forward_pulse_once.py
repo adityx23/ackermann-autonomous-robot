@@ -86,35 +86,38 @@ def feedback_frame(forward: int, yaw: int = 0, battery_mv: int = 12000) -> bytes
     return bytes(frame)
 
 
-def test_reserved_bytes_default_to_zero():
+def test_default_pulse_reserved_bytes_are_zero():
     module = load_pulse_script()
 
     frames = module.build_pulse_frames(0.03, 0.10)
 
-    assert frames.reserved_1 == 0x00
-    assert frames.reserved_2 == 0x00
-    assert frames.zero_frame[1] == 0x00
-    assert frames.zero_frame[2] == 0x00
+    assert frames.pulse_reserved_1 == 0x00
+    assert frames.pulse_reserved_2 == 0x00
+    assert frames.zero_frame.hex(" ") == "7b 00 00 00 00 00 00 00 00 7b 7d"
     assert frames.pulse_frame[1] == 0x00
     assert frames.pulse_frame[2] == 0x00
 
 
-def test_reserved_bytes_zero_and_one_are_accepted(capsys):
+def test_reserved_2_changes_only_the_pulse_frame(capsys):
     module = load_pulse_script()
     fake_serial = FakeSerial()
 
     exit_code = module.main(
-        ["--reserved-1", "0x01", "--reserved-2", "1"],
+        ["--reserved-2", "0x01"],
         serial_factory=lambda _port, _baud: fake_serial,
     )
 
     output = capsys.readouterr().out
-    frames = module.build_pulse_frames(0.03, 0.10, reserved_1=1, reserved_2=1)
+    frames = module.build_pulse_frames(0.03, 0.10, reserved_1=0, reserved_2=1)
     assert exit_code == 0
-    assert "reserved_1: 0x01" in output
-    assert "reserved_2: 0x01" in output
-    assert f"zero_frame_hex: {frames.zero_frame.hex(' ')}" in output
+    assert frames.zero_frame.hex(" ") == "7b 00 00 00 00 00 00 00 00 7b 7d"
+    assert frames.pulse_frame[1] == 0x00
+    assert frames.pulse_frame[2] == 0x01
+    assert "pulse_reserved_1: 0x00" in output
+    assert "pulse_reserved_2: 0x01" in output
+    assert "safe_zero_frame_hex: 7b 00 00 00 00 00 00 00 00 7b 7d" in output
     assert f"pulse_frame_hex: {frames.pulse_frame.hex(' ')}" in output
+    assert "safe_zero_frame_hex: 7b 00 01" not in output
     assert fake_serial.write_calls == []
 
 
@@ -136,6 +139,7 @@ def test_generated_reserved_byte_frame_checksums_are_correct():
 
     frames = module.build_pulse_frames(0.05, 0.15, reserved_1=1, reserved_2=0)
 
+    assert frames.zero_frame.hex(" ") == "7b 00 00 00 00 00 00 00 00 7b 7d"
     assert frames.zero_frame[9] == xor_checksum(frames.zero_frame[:9])
     assert frames.pulse_frame[9] == xor_checksum(frames.pulse_frame[:9])
     assert frames.zero_frame[5:7] == b"\x00\x00"
@@ -154,7 +158,7 @@ def test_tiny_forward_pulse_dry_run_writes_nothing(capsys):
     assert exit_code == 0
     assert "dry_run: true" in output
     assert "refused: execute_real_pulse_required_for_real_write" in output
-    assert "zero_frame_hex: 7b 00 00 00 00 00 00 00 00 7b 7d" in output
+    assert "safe_zero_frame_hex: 7b 00 00 00 00 00 00 00 00 7b 7d" in output
     assert "pulse_target_x_scaled_int16: 30" in output
     assert "real_write_performed: false" in output
     assert "bytes_written_total: 0" in output
@@ -247,7 +251,9 @@ def test_tiny_forward_pulse_refuses_when_readiness_false(monkeypatch, capsys):
     assert fake_serial.write_calls == []
 
 
-def test_tiny_forward_pulse_sends_zero_pulse_zero_zero_when_armed(monkeypatch, capsys):
+def test_tiny_forward_pulse_sends_safe_zero_pulse_safe_zero_safe_zero_when_armed(
+    monkeypatch, capsys
+):
     module = load_pulse_script()
     fake_serial = FakeSerial()
     factory_calls = []
@@ -264,21 +270,31 @@ def test_tiny_forward_pulse_sends_zero_pulse_zero_zero_when_armed(monkeypatch, c
     )
 
     exit_code = module.main(
-        [*all_real_pulse_args(), "--port", "/tmp/c30d", "--baud", "57600"],
+        [
+            *all_real_pulse_args(),
+            "--reserved-2",
+            "0x01",
+            "--port",
+            "/tmp/c30d",
+            "--baud",
+            "57600",
+        ],
         serial_factory=fake_serial_factory,
         sleep_fn=clock.sleep,
         clock=clock,
     )
 
     output = capsys.readouterr().out
-    zero_frame = module.build_pulse_frames(0.03, 0.10).zero_frame
-    pulse_frame = module.build_pulse_frames(0.03, 0.10).pulse_frame
+    zero_frame = module.build_pulse_frames(0.03, 0.10, reserved_2=1).zero_frame
+    pulse_frame = module.build_pulse_frames(0.03, 0.10, reserved_2=1).pulse_frame
     assert exit_code == 0
     assert factory_calls == [("/tmp/c30d", 57600)]
     assert fake_serial.write_calls == [zero_frame, pulse_frame, zero_frame, zero_frame]
     assert [len(frame) for frame in fake_serial.write_calls] == [11, 11, 11, 11]
     assert fake_serial.flush_calls == 4
     assert fake_serial.close_calls == 1
+    assert zero_frame.hex(" ") == "7b 00 00 00 00 00 00 00 00 7b 7d"
+    assert pulse_frame[2] == 0x01
     assert "frame_hex: 7b 00 00 00 00 00 00 00 00 7b 7d" in output
     assert f"frame_hex: {pulse_frame.hex(' ')}" in output
     assert "real_write_performed: true" in output

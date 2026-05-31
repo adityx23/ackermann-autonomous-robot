@@ -63,8 +63,8 @@ SleepFn = Callable[[float], None]
 class PulseFrames:
     zero_frame: bytes
     pulse_frame: bytes
-    reserved_1: int
-    reserved_2: int
+    pulse_reserved_1: int
+    pulse_reserved_2: int
     pulse_target_x: float
     pulse_target_x_scaled: int
     pulse_duration_s: float
@@ -198,8 +198,8 @@ def build_pulse_frames(
 
     scaled_target_x = scale_documentation_candidate(target_x)
     zero_frame = build_ackermann_host_command_frame(
-        reserved_1=reserved_1,
-        reserved_2=reserved_2,
+        reserved_1=0x00,
+        reserved_2=0x00,
         target_x=0,
         target_y=0,
         target_z=0,
@@ -216,8 +216,8 @@ def build_pulse_frames(
     return PulseFrames(
         zero_frame=zero_frame,
         pulse_frame=pulse_frame,
-        reserved_1=reserved_1,
-        reserved_2=reserved_2,
+        pulse_reserved_1=reserved_1,
+        pulse_reserved_2=reserved_2,
         pulse_target_x=target_x,
         pulse_target_x_scaled=scaled_target_x,
         pulse_duration_s=duration_s,
@@ -509,9 +509,9 @@ def write_pulse_sequence(
 
 
 def print_planned_frames(frames: PulseFrames) -> None:
-    print(f"reserved_1: 0x{frames.reserved_1:02x}")
-    print(f"reserved_2: 0x{frames.reserved_2:02x}")
-    print(f"zero_frame_hex: {frames.zero_frame.hex(' ')}")
+    print(f"pulse_reserved_1: 0x{frames.pulse_reserved_1:02x}")
+    print(f"pulse_reserved_2: 0x{frames.pulse_reserved_2:02x}")
+    print(f"safe_zero_frame_hex: {frames.zero_frame.hex(' ')}")
     print(f"pulse_frame_hex: {frames.pulse_frame.hex(' ')}")
     print(f"pulse_target_x_scaled_int16: {frames.pulse_target_x_scaled}")
 
