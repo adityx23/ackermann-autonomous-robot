@@ -1,6 +1,6 @@
 # C30D First Write Experiment Plan
 
-A zero/neutral-only C30D first write path exists at `scripts/send_c30d_zero_frame_once.py`. A separate tiny forward pulse script exists at `scripts/send_c30d_tiny_forward_pulse_once.py` for the first possible motor movement test. It is extremely constrained: no arbitrary driving, no steering commands, no target Y, no target Z, no arbitrary packet input, and no ROS or ROS2.
+A zero/neutral-only C30D first write path exists at `scripts/send_c30d_zero_frame_once.py`. A separate tiny forward pulse script exists at `scripts/send_c30d_tiny_forward_pulse_once.py` for the first possible motor movement test. It is extremely constrained: no arbitrary driving, no target Y, no arbitrary packet input, and no ROS or ROS2. The only target-Z path is the guarded stream-only angular-z probe, which forces target X and target Y to zero.
 
 ## Approved Zero-Frame Scope
 
@@ -20,10 +20,11 @@ The guarded harness in `scripts/c30d_write_test_harness.py` remains validation-o
 - The readiness checker must pass before `/dev/c30d` is opened.
 - Frames must be built with the native host command frame builder.
 - Safe zero frames always use `reserved_1=0x00`, `reserved_2=0x00`, `target_x=0`, `target_y=0`, `target_z=0`, producing exactly `7b 00 00 00 00 00 00 00 00 7b 7d`.
-- Pulse frame uses a small positive `target_x`, `target_y=0`, `target_z=0`.
+- Normal and forward-probe pulse frames use a small positive `target_x`, `target_y=0`, `target_z=0`.
+- Angular-z probe pulse frames are allowed only with `--stream-mode` and `--angular-z-probe`; they force `target_x=0`, force `target_y=0`, and scale `--target-z` into the angular.z field.
 - The reserved/control-byte experiment may set `--reserved-1` and `--reserved-2` only to `0x00` or `0x01` on the pulse frame; both default to `0x00`.
-- Default `--target-x 0.03` scales by 1000 to signed int16 value `30`.
-- Hard limits reject `abs(target_x) > 0.05`, duration above `0.15` seconds, and stream rates above `50` Hz. Only when both `--stream-mode` and `--allow-extended-low-speed-stream` are set may duration exceed `0.15`, and then it is capped at `0.50` seconds with the same `abs(target_x) <= 0.05` limit. Only when both `--stream-mode` and `--allow-deadband-probe` are set may `abs(target_x)` exceed `0.05`, and then it is capped at `0.10`, duration is capped at `0.25` seconds, and stream rate is capped at `20` Hz.
+- Default `--target-x 0.03` scales by 1000 to signed int16 value `30`; default angular-z probe `--target-z 0.05` scales to signed int16 value `50`.
+- Hard limits reject `abs(target_x) > 0.05`, duration above `0.15` seconds, and stream rates above `50` Hz. Only when both `--stream-mode` and `--allow-extended-low-speed-stream` are set may duration exceed `0.15`, and then it is capped at `0.50` seconds with the same `abs(target_x) <= 0.05` limit. Only when both `--stream-mode` and `--allow-deadband-probe` are set may `abs(target_x)` exceed `0.05`, and then it is capped at `0.10`, duration is capped at `0.25` seconds, and stream rate is capped at `20` Hz. Only when both `--stream-mode` and `--angular-z-probe` are set may target Z be nonzero, and then `abs(target_z)` is capped at `0.10`, duration is capped at `0.25` seconds, stream rate is capped at `20` Hz, and target X is forced to zero.
 - Non-stream real sequence is fixed: baseline feedback logging, zero, zero-before feedback logging, pulse, pulse feedback logging, zero, zero-after feedback logging, zero, post feedback logging, close serial.
 - Stream mode real sequence is fixed: baseline feedback logging, safe-zero stream for 0.20 seconds, pulse stream for the requested pulse duration, safe-zero stream for 0.30 seconds, post feedback logging, close serial.
 - `--feedback-output` saves a CSV with phase labels, motion candidates, battery candidate, checksum validity, and raw frame hex so a suspected wheel twitch can be checked against C30D feedback. Stream mode uses `zero_before_stream`, `pulse_stream`, and `zero_after_stream` phase labels.
@@ -61,7 +62,7 @@ Tiny forward pulse command shape:
 
     python scripts/send_c30d_tiny_forward_pulse_once.py --armed --manual-enable --wheels-lifted --robot-restrained --manual-power-cutoff-ready --motor-enable-switch-reviewed --i-understand-this-may-spin-the-wheels --execute-real-pulse --feedback-output data/c30d_live/tiny_pulse_feedback.csv
 
-Default behavior is dry-run only. A real pulse requires all listed guard flags, runs readiness internally, prints `pulse_reserved_1`, `pulse_reserved_2`, `safe_zero_frame_hex`, `pulse_frame_hex`, `allow_extended_low_speed_stream`, `allow_deadband_probe`, stream mode/rate/durations, and frames written by phase, opens `/dev/c30d` only after all checks pass, logs C30D feedback on the same serial handle, writes either the fixed safe-zero, pulse, safe-zero, safe-zero sequence or the guarded stream-mode sequence, flushes after each frame, and closes. On success it reports `real_write_performed`, `bytes_written_total`, `pulse_target_x`, `pulse_duration_s`, `max_abs_forward_candidate during baseline`, `max_abs_forward_candidate during pulse/post`, `max_abs_yaw_candidate`, `invalid_checksum_count`, `movement_feedback_detected`, and `warning: wheels may spin briefly`.
+Default behavior is dry-run only. A real pulse requires all listed guard flags, runs readiness internally, prints `pulse_reserved_1`, `pulse_reserved_2`, `safe_zero_frame_hex`, `pulse_frame_hex`, `pulse_target_x`, `pulse_target_z`, `pulse_target_z_scaled_int16`, `allow_extended_low_speed_stream`, `allow_deadband_probe`, `angular_z_probe`, stream mode/rate/durations, and frames written by phase, opens `/dev/c30d` only after all checks pass, logs C30D feedback on the same serial handle, writes either the fixed safe-zero, pulse, safe-zero, safe-zero sequence or the guarded stream-mode sequence, flushes after each frame, and closes. On success it reports `real_write_performed`, `bytes_written_total`, `pulse_target_x`, `pulse_target_z`, `pulse_duration_s`, `max_abs_forward_candidate during baseline`, `max_abs_forward_candidate during pulse/post`, `max_abs_yaw_candidate`, `invalid_checksum_count`, `movement_feedback_detected`, and `warning: wheels may spin briefly`.
 
 ## Abort Conditions
 

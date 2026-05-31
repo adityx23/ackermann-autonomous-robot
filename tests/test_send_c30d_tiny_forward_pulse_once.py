@@ -313,6 +313,107 @@ def test_tiny_forward_pulse_rejects_duration_above_deadband_probe_limit(capsys):
     assert fake_serial.write_calls == []
 
 
+def test_tiny_forward_pulse_rejects_angular_z_probe_without_stream_mode(capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+
+    exit_code = module.main(
+        ["--angular-z-probe"],
+        serial_factory=lambda _port, _baud: fake_serial,
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "angular_z_probe_requires_stream_mode" in output
+    assert fake_serial.write_calls == []
+
+
+def test_tiny_forward_pulse_rejects_target_z_above_angular_z_probe_limit(capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+
+    exit_code = module.main(
+        ["--stream-mode", "--angular-z-probe", "--target-z", "0.101"],
+        serial_factory=lambda _port, _baud: fake_serial,
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "target_z_exceeds_0.10_angular_z_probe_limit" in output
+    assert fake_serial.write_calls == []
+
+
+def test_tiny_forward_pulse_rejects_duration_above_angular_z_probe_limit(capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+
+    exit_code = module.main(
+        ["--stream-mode", "--angular-z-probe", "--duration", "0.251"],
+        serial_factory=lambda _port, _baud: fake_serial,
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "duration_exceeds_0.25_angular_z_probe_limit" in output
+    assert fake_serial.write_calls == []
+
+
+def test_tiny_forward_pulse_forces_target_x_to_zero_in_angular_z_probe(capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+
+    exit_code = module.main(
+        [
+            "--stream-mode",
+            "--angular-z-probe",
+            "--target-x",
+            "0.05",
+            "--target-z",
+            "0.05",
+        ],
+        serial_factory=lambda _port, _baud: fake_serial,
+    )
+
+    output = capsys.readouterr().out
+    frames = module.build_pulse_frames(
+        0.05,
+        0.10,
+        target_z=0.05,
+        angular_z_probe=True,
+    )
+    assert exit_code == 0
+    assert frames.pulse_target_x == 0.0
+    assert frames.pulse_frame[3:5] == b"\x00\x00"
+    assert "angular_z_probe: true" in output
+    assert "pulse_target_x: 0" in output
+    assert "pulse_target_z: 0.05" in output
+    assert "pulse_target_z_scaled_int16: 50" in output
+    assert f"pulse_frame_hex: {frames.pulse_frame.hex(' ')}" in output
+    assert fake_serial.write_calls == []
+
+
+def test_tiny_forward_pulse_angular_z_probe_frame_places_target_z_in_bytes_7_and_8():
+    module = load_pulse_script()
+
+    frames = module.build_pulse_frames(
+        0.03,
+        0.10,
+        reserved_1=1,
+        reserved_2=1,
+        target_z=0.10,
+        angular_z_probe=True,
+    )
+
+    assert frames.zero_frame.hex(" ") == "7b 00 00 00 00 00 00 00 00 7b 7d"
+    assert frames.pulse_frame[1] == 0x01
+    assert frames.pulse_frame[2] == 0x01
+    assert frames.pulse_frame[3:5] == b"\x00\x00"
+    assert frames.pulse_frame[5:7] == b"\x00\x00"
+    assert int.from_bytes(frames.pulse_frame[7:9], "big", signed=True) == 100
+    assert frames.pulse_target_z_scaled == 100
+    assert frames.pulse_frame[9] == xor_checksum(frames.pulse_frame[:9])
+
+
 def test_tiny_forward_pulse_refuses_target_x_above_limit(capsys):
     module = load_pulse_script()
     fake_serial = FakeSerial()

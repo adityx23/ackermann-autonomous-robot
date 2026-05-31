@@ -204,14 +204,18 @@ feedback before the counted validation window. For real pulses, `--readiness-ret
 defaults to `1` and `--retry-delay` defaults to `1.0`; each attempt is still read-only,
 and writing is allowed only after the counted window has readiness allowed, zero invalid
 C30D checksum frames, and battery above the warning threshold. The script builds only
-native host command frames using target Y and target Z fixed at zero. Defaults are
-`--target-x 0.03` and `--duration 0.10`; hard limits reject `abs(target_x) > 0.05` or
-duration above `0.15` seconds. `--stream-mode` keeps the same target limit and adds
-`--stream-rate-hz` with a hard maximum of `50`. `--allow-extended-low-speed-stream` is
-ignored unless `--stream-mode` is also set; when both are set, target X remains limited
-to `0.05` and duration may be at most `0.50` seconds. `--allow-deadband-probe` is also
-stream-mode only; it raises the tiny target cap to `0.10`, caps duration at `0.25`
-seconds, and caps stream rate at `20` Hz. The safe zero/stop frame is
+native host command frames using target Y fixed at zero, and target Z fixed at zero except
+for the guarded stream-only angular-z probe. Defaults are `--target-x 0.03` and
+`--duration 0.10`; hard limits reject `abs(target_x) > 0.05` or duration above `0.15`
+seconds. `--stream-mode` keeps the same target limit and adds `--stream-rate-hz` with a
+hard maximum of `50`. `--allow-extended-low-speed-stream` is ignored unless
+`--stream-mode` is also set; when both are set, target X remains limited to `0.05` and
+duration may be at most `0.50` seconds. `--allow-deadband-probe` is also stream-mode
+only; it raises the tiny target cap to `0.10`, caps duration at `0.25` seconds, and caps
+stream rate at `20` Hz. `--angular-z-probe` is stream-mode only; it forces target X and
+target Y to zero, scales `--target-z` into the angular.z field, caps `abs(target_z)` at
+`0.10`, caps duration at `0.25` seconds, and caps stream rate at `20` Hz. The safe
+zero/stop frame is
 always the physically tested `7b 00 00 00 00 00 00 00 00 7b 7d`; reserved/control-byte
 experiments apply only to the pulse frame. The non-stream real sequence is fixed: safe
 zero frame, 0.05 second pause, pulse frame, pulse duration pause, safe zero frame, 0.05
@@ -222,12 +226,13 @@ During the same serial session it logs C30D feedback before, during, and after t
 when `--feedback-output` is provided. The CSV includes monotonic timestamp, phase,
 forward/yaw candidates, candidate battery, checksum validity, and raw frame hex. The
 script prints `pulse_reserved_1`, `pulse_reserved_2`, `safe_zero_frame_hex`,
-`pulse_frame_hex`, `allow_extended_low_speed_stream`, `allow_deadband_probe`, stream mode/rate/durations, frames written by phase, baseline vs
-pulse/post forward-candidate maxima, max yaw candidate, invalid checksum count, and
-whether movement feedback was detected. It accepts
-`--reserved-1` and `--reserved-2` only as `0x00` or `0x01` for the pulse-frame-only
-reserved/control-byte experiment. It accepts no steering
-command, no target Y, no target Z, and no arbitrary packet input.
+`pulse_frame_hex`, `pulse_target_x`, `pulse_target_z`, `pulse_target_z_scaled_int16`,
+`allow_extended_low_speed_stream`, `allow_deadband_probe`, `angular_z_probe`, stream
+mode/rate/durations, frames written by phase, baseline vs pulse/post forward-candidate
+maxima, max yaw candidate, invalid checksum count, and whether movement feedback was
+detected. It accepts `--reserved-1` and `--reserved-2` only as `0x00` or `0x01` for the
+pulse-frame-only reserved/control-byte experiment. It accepts no target Y and no arbitrary
+packet input.
 
 Steering commands, arbitrary driving, and larger/longer motor commands are still not
 implemented or approved. Any broader motion test requires a separate explicit code change

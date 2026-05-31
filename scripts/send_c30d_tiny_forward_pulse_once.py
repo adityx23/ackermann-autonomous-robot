@@ -24,13 +24,17 @@ DEFAULT_C30D_WARMUP_DURATION_S = 1.0
 DEFAULT_TARGET_X = 0.03
 MAX_ABS_TARGET_X = 0.05
 MAX_ABS_DEADBAND_PROBE_TARGET_X = 0.10
+DEFAULT_TARGET_Z = 0.05
+MAX_ABS_ANGULAR_Z_PROBE_TARGET_Z = 0.10
 DEFAULT_PULSE_DURATION_S = 0.10
 MAX_PULSE_DURATION_S = 0.15
 MAX_EXTENDED_LOW_SPEED_STREAM_DURATION_S = 0.50
 MAX_DEADBAND_PROBE_DURATION_S = 0.25
+MAX_ANGULAR_Z_PROBE_DURATION_S = 0.25
 DEFAULT_STREAM_RATE_HZ = 20.0
 MAX_STREAM_RATE_HZ = 50.0
 MAX_DEADBAND_PROBE_STREAM_RATE_HZ = 20.0
+MAX_ANGULAR_Z_PROBE_STREAM_RATE_HZ = 20.0
 ZERO_STREAM_DURATION_S = 0.20
 STOP_STREAM_DURATION_S = 0.30
 DEFAULT_READINESS_RETRIES = 1
@@ -78,7 +82,9 @@ class PulseFrames:
     pulse_reserved_1: int
     pulse_reserved_2: int
     pulse_target_x: float
+    pulse_target_z: float
     pulse_target_x_scaled: int
+    pulse_target_z_scaled: int
     pulse_duration_s: float
 
 
@@ -108,6 +114,7 @@ class PulseWriteResult:
     real_write_performed: bool
     bytes_written_total: int
     pulse_target_x: float
+    pulse_target_z: float
     pulse_duration_s: float
     feedback_summary: FeedbackSummary
     stream_mode: bool = False
@@ -139,8 +146,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", default=DEFAULT_PORT)
     parser.add_argument("--baud", type=int, default=DEFAULT_BAUD)
     parser.add_argument("--target-x", type=float, default=DEFAULT_TARGET_X)
+    parser.add_argument("--target-z", type=float, default=DEFAULT_TARGET_Z)
     parser.add_argument("--duration", type=float, default=DEFAULT_PULSE_DURATION_S)
     parser.add_argument("--stream-mode", action="store_true")
+    parser.add_argument("--angular-z-probe", action="store_true")
     parser.add_argument("--stream-rate-hz", type=float, default=DEFAULT_STREAM_RATE_HZ)
     parser.add_argument("--allow-extended-low-speed-stream", action="store_true")
     parser.add_argument("--allow-deadband-probe", action="store_true")
@@ -280,6 +289,27 @@ def validate_limits(
     return tuple(reasons)
 
 
+def validate_angular_z_probe_limits(
+    target_z: float,
+    duration_s: float,
+    stream_rate_hz: float,
+) -> tuple[str, ...]:
+    reasons: list[str] = []
+    if target_z == 0.0:
+        reasons.append("target_z_must_be_nonzero_for_angular_z_probe")
+    if abs(target_z) > MAX_ABS_ANGULAR_Z_PROBE_TARGET_Z:
+        reasons.append("target_z_exceeds_0.10_angular_z_probe_limit")
+    if duration_s <= 0.0:
+        reasons.append("duration_must_be_positive")
+    if duration_s > MAX_ANGULAR_Z_PROBE_DURATION_S:
+        reasons.append("duration_exceeds_0.25_angular_z_probe_limit")
+    if stream_rate_hz <= 0.0:
+        reasons.append("stream_rate_hz_must_be_positive")
+    if stream_rate_hz > MAX_ANGULAR_Z_PROBE_STREAM_RATE_HZ:
+        reasons.append("stream_rate_hz_exceeds_20_angular_z_probe_limit")
+    return tuple(reasons)
+
+
 def build_pulse_frames(
     target_x: float,
     duration_s: float,
@@ -287,18 +317,27 @@ def build_pulse_frames(
     reserved_2: int = DEFAULT_RESERVED_2,
     max_duration_s: float = MAX_PULSE_DURATION_S,
     max_abs_target_x: float = MAX_ABS_TARGET_X,
+    target_z: float = 0.0,
+    angular_z_probe: bool = False,
 ) -> PulseFrames:
     from ackermann_robot.drivers.c30d_host_command_frame import (
         build_ackermann_host_command_frame,
         scale_documentation_candidate,
     )
 
-    limit_reasons = validate_limits(
-        target_x,
-        duration_s,
-        max_duration_s=max_duration_s,
-        max_abs_target_x=max_abs_target_x,
-    )
+    if angular_z_probe:
+        limit_reasons = validate_angular_z_probe_limits(
+            target_z,
+            duration_s,
+            DEFAULT_STREAM_RATE_HZ,
+        )
+    else:
+        limit_reasons = validate_limits(
+            target_x,
+            duration_s,
+            max_duration_s=max_duration_s,
+            max_abs_target_x=max_abs_target_x,
+        )
     if limit_reasons:
         raise ValueError(", ".join(limit_reasons))
     if reserved_1 not in (0x00, 0x01):
@@ -306,7 +345,9 @@ def build_pulse_frames(
     if reserved_2 not in (0x00, 0x01):
         raise ValueError("reserved_2_must_be_0x00_or_0x01")
 
-    scaled_target_x = scale_documentation_candidate(target_x)
+    pulse_target_x = 0.0 if angular_z_probe else target_x
+    scaled_target_x = scale_documentation_candidate(pulse_target_x)
+    scaled_target_z = scale_documentation_candidate(target_z if angular_z_probe else 0.0)
     zero_frame = build_ackermann_host_command_frame(
         reserved_1=0x00,
         reserved_2=0x00,
@@ -319,22 +360,33 @@ def build_pulse_frames(
         reserved_2=reserved_2,
         target_x=scaled_target_x,
         target_y=0,
-        target_z=0,
+        target_z=scaled_target_z,
     )
     validate_frame(zero_frame, expect_zero_target_x=True)
-    validate_frame(pulse_frame, expect_zero_target_x=False)
+    validate_frame(
+        pulse_frame,
+        expect_zero_target_x=angular_z_probe,
+        allow_target_z=angular_z_probe,
+    )
     return PulseFrames(
         zero_frame=zero_frame,
         pulse_frame=pulse_frame,
         pulse_reserved_1=reserved_1,
         pulse_reserved_2=reserved_2,
-        pulse_target_x=target_x,
+        pulse_target_x=pulse_target_x,
+        pulse_target_z=target_z if angular_z_probe else 0.0,
         pulse_target_x_scaled=scaled_target_x,
+        pulse_target_z_scaled=scaled_target_z,
         pulse_duration_s=duration_s,
     )
 
 
-def validate_frame(frame: bytes, *, expect_zero_target_x: bool) -> None:
+def validate_frame(
+    frame: bytes,
+    *,
+    expect_zero_target_x: bool,
+    allow_target_z: bool = False,
+) -> None:
     from ackermann_robot.drivers.c30d_checksum import xor_checksum
 
     reasons: list[str] = []
@@ -348,8 +400,16 @@ def validate_frame(frame: bytes, *, expect_zero_target_x: bool) -> None:
         reasons.append("missing_checksum_byte")
     elif frame[9] != xor_checksum(frame[:9]):
         reasons.append("checksum_byte_9_not_xor_bytes_0_through_8")
-    if len(frame) >= 9 and (frame[5:7] != b"\x00\x00" or frame[7:9] != b"\x00\x00"):
-        reasons.append("target_y_or_target_z_not_zero")
+    if len(frame) >= 7 and frame[5:7] != b"\x00\x00":
+        reasons.append("target_y_not_zero")
+    if len(frame) >= 9 and frame[7:9] != b"\x00\x00" and not allow_target_z:
+        reasons.append("target_z_not_zero")
+    if allow_target_z and len(frame) >= 9:
+        target_z = int.from_bytes(frame[7:9], "big", signed=True)
+        if target_z == 0:
+            reasons.append("pulse_frame_target_z_not_nonzero")
+        if abs(target_z) > int(MAX_ABS_ANGULAR_Z_PROBE_TARGET_Z * 1000):
+            reasons.append("pulse_frame_target_z_exceeds_scaled_limit")
     if expect_zero_target_x and len(frame) >= 5 and frame[3:5] != b"\x00\x00":
         reasons.append("zero_frame_target_x_not_zero")
     if not expect_zero_target_x and len(frame) >= 5:
@@ -741,6 +801,7 @@ def write_pulse_sequence(
         real_write_performed=True,
         bytes_written_total=total,
         pulse_target_x=frames.pulse_target_x,
+        pulse_target_z=frames.pulse_target_z,
         pulse_duration_s=frames.pulse_duration_s,
         feedback_summary=summarize_feedback(rows),
     )
@@ -835,6 +896,7 @@ def write_stream_pulse_sequence(
         real_write_performed=True,
         bytes_written_total=total,
         pulse_target_x=frames.pulse_target_x,
+        pulse_target_z=frames.pulse_target_z,
         pulse_duration_s=frames.pulse_duration_s,
         feedback_summary=summarize_feedback(rows),
         stream_mode=True,
@@ -853,12 +915,14 @@ def print_stream_plan(
     allow_deadband_probe: bool,
     deadband_probe_target_limit: float,
     deadband_probe_duration_limit: float,
+    angular_z_probe: bool,
 ) -> None:
     print(f"allow_extended_low_speed_stream: {str(allow_extended_low_speed_stream).lower()}")
     print(f"extended_duration_limit_s: {extended_duration_limit_s:g}")
     print(f"allow_deadband_probe: {str(allow_deadband_probe).lower()}")
     print(f"deadband_probe_target_limit: {deadband_probe_target_limit:g}")
     print(f"deadband_probe_duration_limit: {deadband_probe_duration_limit:g}")
+    print(f"angular_z_probe: {str(angular_z_probe).lower()}")
     print(f"stream_mode: {str(stream_mode).lower()}")
     print(f"stream_rate_hz: {stream_rate_hz:g}")
     print(f"zero_stream_duration_s: {ZERO_STREAM_DURATION_S:g}")
@@ -872,6 +936,7 @@ def print_planned_frames(frames: PulseFrames) -> None:
     print(f"safe_zero_frame_hex: {frames.zero_frame.hex(' ')}")
     print(f"pulse_frame_hex: {frames.pulse_frame.hex(' ')}")
     print(f"pulse_target_x_scaled_int16: {frames.pulse_target_x_scaled}")
+    print(f"pulse_target_z_scaled_int16: {frames.pulse_target_z_scaled}")
 
 
 def print_result(result: PulseWriteResult) -> None:
@@ -886,6 +951,7 @@ def print_result(result: PulseWriteResult) -> None:
         f"frames_written_by_phase: {format_frames_written_by_phase(result.frames_written_by_phase)}"
     )
     print(f"pulse_target_x: {result.pulse_target_x:g}")
+    print(f"pulse_target_z: {result.pulse_target_z:g}")
     print(f"pulse_duration_s: {result.pulse_duration_s:g}")
     print(
         "max_abs_forward_candidate during baseline: "
@@ -912,34 +978,54 @@ def main(
     clock: Callable[[], float] = time.monotonic,
 ) -> int:
     args = build_parser().parse_args(argv)
-    deadband_probe = bool(args.stream_mode and args.allow_deadband_probe)
+    angular_z_probe = bool(args.stream_mode and args.angular_z_probe)
+    deadband_probe = bool(args.stream_mode and args.allow_deadband_probe and not angular_z_probe)
     extended_low_speed_stream = bool(
-        args.stream_mode and args.allow_extended_low_speed_stream and not deadband_probe
+        args.stream_mode
+        and args.allow_extended_low_speed_stream
+        and not deadband_probe
+        and not angular_z_probe
     )
     duration_limit_s = MAX_PULSE_DURATION_S
     target_limit_s = MAX_ABS_TARGET_X
     stream_rate_limit_hz = MAX_STREAM_RATE_HZ
     pre_limit_reasons: list[str] = []
+    if args.angular_z_probe and not args.stream_mode:
+        pre_limit_reasons.append("angular_z_probe_requires_stream_mode")
     if args.allow_deadband_probe and not args.stream_mode:
         pre_limit_reasons.append("deadband_probe_requires_stream_mode")
-    if deadband_probe:
+    if angular_z_probe:
+        duration_limit_s = MAX_ANGULAR_Z_PROBE_DURATION_S
+        target_limit_s = 0.0
+        stream_rate_limit_hz = MAX_ANGULAR_Z_PROBE_STREAM_RATE_HZ
+    elif deadband_probe:
         duration_limit_s = MAX_DEADBAND_PROBE_DURATION_S
         target_limit_s = MAX_ABS_DEADBAND_PROBE_TARGET_X
         stream_rate_limit_hz = MAX_DEADBAND_PROBE_STREAM_RATE_HZ
     elif extended_low_speed_stream:
         duration_limit_s = MAX_EXTENDED_LOW_SPEED_STREAM_DURATION_S
     try:
-        limit_reasons = [
-            *pre_limit_reasons,
-            *validate_limits(
-                args.target_x,
-                args.duration,
-                args.stream_rate_hz,
-                max_duration_s=duration_limit_s,
-                max_abs_target_x=target_limit_s,
-                max_stream_rate_hz=stream_rate_limit_hz,
-            ),
-        ]
+        if angular_z_probe:
+            limit_reasons = [
+                *pre_limit_reasons,
+                *validate_angular_z_probe_limits(
+                    args.target_z,
+                    args.duration,
+                    args.stream_rate_hz,
+                ),
+            ]
+        else:
+            limit_reasons = [
+                *pre_limit_reasons,
+                *validate_limits(
+                    args.target_x,
+                    args.duration,
+                    args.stream_rate_hz,
+                    max_duration_s=duration_limit_s,
+                    max_abs_target_x=target_limit_s,
+                    max_stream_rate_hz=stream_rate_limit_hz,
+                ),
+            ]
         if limit_reasons:
             raise ValueError(", ".join(limit_reasons))
         frames = build_pulse_frames(
@@ -949,6 +1035,8 @@ def main(
             reserved_2=args.reserved_2,
             max_duration_s=duration_limit_s,
             max_abs_target_x=target_limit_s,
+            target_z=args.target_z,
+            angular_z_probe=angular_z_probe,
         )
     except ValueError as exc:
         print(f"refused: {exc}")
@@ -965,8 +1053,10 @@ def main(
         allow_deadband_probe=args.allow_deadband_probe,
         deadband_probe_target_limit=target_limit_s,
         deadband_probe_duration_limit=duration_limit_s,
+        angular_z_probe=args.angular_z_probe,
     )
     print(f"pulse_target_x: {frames.pulse_target_x:g}")
+    print(f"pulse_target_z: {frames.pulse_target_z:g}")
     print(f"pulse_duration_s: {frames.pulse_duration_s:g}")
     print("warning: wheels may spin briefly")
 
