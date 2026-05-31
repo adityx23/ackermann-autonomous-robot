@@ -67,7 +67,9 @@ def test_c30d_command_protocol_status_reports_disabled(capsys):
     assert "imu_location: integrated_on_c30d" in output
     assert "feedback_protocol: confirmed_from_observation_and_docs" in output
     assert "movement_requires_c30d_command_protocol: true" in output
-    assert "command_protocol: documented_candidate_not_live_tested" in output
+    assert "command_protocol: wheeltec_reference_source_confirmed_layout" in output
+    assert "command_frame_layout: confirmed_against_wheeltec_reference_source" in output
+    assert "motion_response: no_motion_observed_yet" in output
     assert "command_frame_name: host_to_c30d_candidate" in output
     assert "ros_runtime_used: false" in output
     assert "ros2_runtime_used: false" in output

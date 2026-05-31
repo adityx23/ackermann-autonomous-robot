@@ -35,8 +35,9 @@ research scaffold, not an implementation plan for motor movement.
   - `uint16_be_20_21`: `candidate_battery_mV`
 - Feedback field names are confirmed at the packet-map level by observation plus Wheeltec
   documentation, while physical scaling/sign details remain subject to calibration.
-- The C30D command protocol is documented by Wheeltec as an 11-byte native host-to-STM32 serial
-  frame candidate, but it is not live-tested on this robot.
+- The C30D host command frame layout and scaling are confirmed against the local Wheeltec
+  reference source: 11 bytes, `0x7B` header, `0x7D` tail, reserved bytes at indexes 1-2,
+  X/Y/Z signed int16 big-endian targets scaled by 1000, and XOR checksum over indexes 0-8.
 - C30D command protocol knowledge is required for movement with the current wiring.
 - The real motor/steering command path is disabled.
 - The dry-run command path only creates an `UNIMPLEMENTED` placeholder and never returns
@@ -130,13 +131,15 @@ Pi-side preflight uses checksum validity and `candidate_battery_mV` only for hea
 future motor-test readiness decisions. It does not send commands, and the real movement
 path remains disabled.
 
-## Wheeltec STM32 Moving Chassis documentation update
+## Wheeltec STM32 Moving Chassis reference-source confirmation
 
-Wheeltec documentation uses ROS terminology and indicates STM32 and a ROS host communicate
+Wheeltec source uses ROS terminology and indicates STM32 and a ROS host communicate
 through serial port 3 at 115200 baud. This project does not use ROS or ROS2 runtime; it
-treats the documented packet as a native Python/serial host-to-C30D serial frame
-candidate. The documented STM32-to-host feedback frame is 24 bytes, which matches the
-read-only feedback reverse engineering in this repository.
+treats the same packet as a native Python/serial host-to-C30D serial frame. The local
+Wheeltec reference excerpts confirm the host command byte layout and scaling already used
+by `ackermann_robot.drivers.c30d_host_command_frame`. The documented STM32-to-host
+feedback frame is 24 bytes, which matches the read-only feedback reverse engineering in
+this repository.
 
 Confirmed feedback packet map, using zero-based byte indexes in code and one-based byte
 positions from the documentation:
@@ -149,32 +152,46 @@ positions from the documentation:
 - Byte 23 / index 22: BCC/XOR checksum over bytes 1-22 / indexes 0-21.
 - Byte 24 / index 23: `0x7D` end.
 
-Documented candidate native host-to-STM32 serial packet map, not live-tested on this robot:
+Confirmed native host-to-STM32 serial command packet map from the local Wheeltec source
+excerpts:
 
+- `SEND_DATA_SIZE = 11`.
+- `FRAME_HEADER = 0x7B`.
+- `FRAME_TAIL = 0x7D`.
 - Byte 1 / index 0: `0x7B` header.
-- Byte 2 / index 1: reserved/model bit.
-- Byte 3 / index 2: reserved/control/start bit.
-- Bytes 4-5 / indexes 3-4: target speed X signed int16 big-endian.
-- Bytes 6-7 / indexes 5-6: target speed Y signed int16 big-endian.
-- Bytes 8-9 / indexes 7-8: target speed Z signed int16 big-endian.
-- Byte 10 / index 9: BCC/XOR checksum over bytes 1-9 / indexes 0-8.
-- Byte 11 / index 10: `0x7D` end.
+- Byte 2 / index 1: reserved byte, set to zero by the reference source.
+- Byte 3 / index 2: reserved byte, set to zero by the reference source.
+- Bytes 4-5 / indexes 3-4: `linear.x * 1000` as signed int16 high byte then low byte.
+- Bytes 6-7 / indexes 5-6: `linear.y * 1000` as signed int16 high byte then low byte.
+- Bytes 8-9 / indexes 7-8: `angular.z * 1000` as signed int16 high byte then low byte.
+- Byte 10 / index 9: BCC/XOR checksum over `tx[0]` through `tx[8]`.
+- Byte 11 / index 10: `0x7D` tail.
 
-Ackermann robots do not support Y-axis movement, so target Y should remain zero in any
-offline Ackermann command candidate. The helper in
-`ackermann_robot.drivers.c30d_host_command_frame` scales m/s or rad/s style float values
-by 1000 according to the documentation, but this scaling remains
-`documentation_derived_candidate_scaled_by_1000_not_live_tested` until verified safely.
+The native builder in `ackermann_robot.drivers.c30d_host_command_frame` matches this
+source: it emits 11 bytes, uses the same header and tail, keeps signed int16 values in
+big-endian byte order, scales X/Y/Z by 1000, and computes the checksum as XOR over frame
+indexes 0 through 8. Ackermann robots do not support Y-axis movement, so target Y remains
+zero in Ackermann-specific helpers and guarded experiment scripts.
 
-Remaining unknowns before any live write is considered:
+Live guarded tests have not produced motion even with the C30D motor switch ON. The
+known-safe neutral frame `7b 00 00 00 00 00 00 00 00 7b 7d` caused no movement, and
+single-frame, streamed, extended low-speed, and deadband-probe tests with `target_x` up to
+`0.10` still produced no visible wheel motion and `movement_feedback_detected=false`.
+Given the source-confirmed frame layout, the blocker is now more likely firmware
+mode/control enable state, the active UART path, or board-variant behavior than the basic
+11-byte packet shape or scaling.
 
-- Exact meaning of the reserved/model byte.
-- Exact meaning of the reserved/control/start byte.
+Remaining unknowns before treating any live write as a known-good motion command:
+
+- Exact firmware mode or control-enable requirements.
+- Whether the active command UART path matches the documented serial port 3 path on this
+  board variant.
+- Board-variant behavior around motor enable, reserved bytes, and command acceptance.
 - Exact Ackermann interpretation of target Z.
-- Stop/start bit behavior.
 
-Real serial writes remain disabled. The command frame is documented but untested on this
-hardware, so no command packet should be treated as valid for motion.
+Real serial writes remain guarded by the first-write/tiny-pulse scripts. The command frame
+layout is confirmed against source, but no command packet should be treated as a
+known-good motion command until a guarded test produces an expected physical response.
 
 ## Command Packet Hypotheses
 

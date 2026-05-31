@@ -124,13 +124,17 @@ Build a non-transmitting Wheeltec-documented 11-byte native host command candida
 
     python scripts/build_c30d_host_command_frame.py --target-x 0.0 --target-z 0.0
 
-Wheeltec documentation uses ROS terminology, but this project treats the frame as native
-Python/serial host-to-C30D tooling only. No ROS or ROS2 runtime is required or used. This
-builder uses the documented candidate frame: `0x7B` header, two reserved/control bytes,
-signed int16 big-endian target X/Y/Z values, XOR checksum over bytes 0-8, and `0x7D` end.
-Ackermann helpers keep target Y at zero by default. Float scaling by 1000 is
-documentation-derived and not live-tested. Output is non-transmitting and prints
-`transmit_allowed: false` and `real_write_disabled: true`; real writes remain disabled.
+Wheeltec source uses ROS terminology, but this project treats the frame as native
+Python/serial host-to-C30D tooling only. No ROS or ROS2 runtime is required or used. The
+local Wheeltec reference excerpts confirm the current 11-byte command layout:
+`SEND_DATA_SIZE = 11`, `0x7B` header, two reserved bytes set to zero in the reference,
+signed int16 big-endian X/Y/Z values scaled from `linear.x`, `linear.y`, and `angular.z`
+by 1000, XOR checksum over bytes 0-8, and `0x7D` tail. Ackermann helpers keep target Y at
+zero by default. Output is non-transmitting and prints `transmit_allowed: false` and
+`real_write_disabled: true`; real writes remain guarded. Live guarded tests with the motor
+switch ON and `target_x` up to `0.10` have still produced no observed motion, so the
+remaining blocker is likely firmware mode/control enable, active UART path, or board
+variant behavior rather than the basic frame layout.
 
 The hypothesis builder accepts exactly 21 hex payload bytes for frame bytes 1-21, either
 positionally or through `--payload-hex`, and prints a 24-byte frame shape using `0x7B`
