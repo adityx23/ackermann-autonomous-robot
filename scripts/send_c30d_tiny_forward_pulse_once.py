@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import argparse
 import csv
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 from pathlib import Path
 import sys
 import time
@@ -24,6 +25,10 @@ DEFAULT_TARGET_X = 0.03
 MAX_ABS_TARGET_X = 0.05
 DEFAULT_PULSE_DURATION_S = 0.10
 MAX_PULSE_DURATION_S = 0.15
+DEFAULT_STREAM_RATE_HZ = 20.0
+MAX_STREAM_RATE_HZ = 50.0
+ZERO_STREAM_DURATION_S = 0.20
+STOP_STREAM_DURATION_S = 0.30
 DEFAULT_READINESS_RETRIES = 1
 DEFAULT_RETRY_DELAY_S = 1.0
 DEFAULT_RESERVED_1 = 0x00
@@ -101,6 +106,11 @@ class PulseWriteResult:
     pulse_target_x: float
     pulse_duration_s: float
     feedback_summary: FeedbackSummary
+    stream_mode: bool = False
+    stream_rate_hz: float = DEFAULT_STREAM_RATE_HZ
+    zero_stream_duration_s: float = ZERO_STREAM_DURATION_S
+    stop_stream_duration_s: float = STOP_STREAM_DURATION_S
+    frames_written_by_phase: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -126,6 +136,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--baud", type=int, default=DEFAULT_BAUD)
     parser.add_argument("--target-x", type=float, default=DEFAULT_TARGET_X)
     parser.add_argument("--duration", type=float, default=DEFAULT_PULSE_DURATION_S)
+    parser.add_argument("--stream-mode", action="store_true")
+    parser.add_argument("--stream-rate-hz", type=float, default=DEFAULT_STREAM_RATE_HZ)
     parser.add_argument(
         "--reserved-1", type=parse_reserved_control_byte, default=DEFAULT_RESERVED_1
     )
@@ -227,7 +239,11 @@ def missing_real_write_flags(args: argparse.Namespace) -> tuple[str, ...]:
     return tuple(name for name in REQUIRED_REAL_WRITE_FLAGS if not getattr(args, name))
 
 
-def validate_limits(target_x: float, duration_s: float) -> tuple[str, ...]:
+def validate_limits(
+    target_x: float,
+    duration_s: float,
+    stream_rate_hz: float = DEFAULT_STREAM_RATE_HZ,
+) -> tuple[str, ...]:
     reasons: list[str] = []
     if target_x <= 0.0:
         reasons.append("target_x_must_be_positive_forward_only")
@@ -237,6 +253,10 @@ def validate_limits(target_x: float, duration_s: float) -> tuple[str, ...]:
         reasons.append("duration_must_be_positive")
     if duration_s > MAX_PULSE_DURATION_S:
         reasons.append("duration_exceeds_0.15_limit")
+    if stream_rate_hz <= 0.0:
+        reasons.append("stream_rate_hz_must_be_positive")
+    if stream_rate_hz > MAX_STREAM_RATE_HZ:
+        reasons.append("stream_rate_hz_exceeds_50_limit")
     return tuple(reasons)
 
 
@@ -547,7 +567,9 @@ def write_feedback_csv(path: Path, rows: list[FeedbackLogRow]) -> None:
 def summarize_feedback(rows: list[FeedbackLogRow]) -> FeedbackSummary:
     baseline_forward = [abs(row.forward_candidate) for row in rows if row.phase == "baseline"]
     pulse_post_forward = [
-        abs(row.forward_candidate) for row in rows if row.phase in {"pulse", "zero_after", "post"}
+        abs(row.forward_candidate)
+        for row in rows
+        if row.phase in {"pulse", "pulse_stream", "zero_after", "zero_after_stream", "post"}
     ]
     max_abs_forward_candidate_baseline = max(baseline_forward, default=0)
     max_abs_forward_candidate_pulse_post = max(pulse_post_forward, default=0)
@@ -571,6 +593,46 @@ def write_frame(handle: SerialHandle, frame: bytes) -> int:
     bytes_written = handle.write(frame)
     handle.flush()
     return bytes_written
+
+
+def stream_frame_count(duration_s: float, stream_rate_hz: float) -> int:
+    return max(1, int(math.ceil(duration_s * stream_rate_hz)))
+
+
+def format_frames_written_by_phase(frames_by_phase: dict[str, int]) -> str:
+    if not frames_by_phase:
+        return "none"
+    return ", ".join(f"{phase}={count}" for phase, count in frames_by_phase.items())
+
+
+def write_stream_phase(
+    handle: SerialHandle,
+    *,
+    frame: bytes,
+    phase: str,
+    duration_s: float,
+    stream_rate_hz: float,
+    buffer: bytearray,
+    rows: list[FeedbackLogRow],
+    frame_index: int,
+    sleep_fn: SleepFn = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> tuple[int, int, int]:
+    frame_count = stream_frame_count(duration_s, stream_rate_hz)
+    period_s = 1.0 / stream_rate_hz
+    bytes_written_total = 0
+    for _index in range(frame_count):
+        bytes_written_total += write_frame(handle, frame)
+        frame_index = read_feedback_once(
+            handle,
+            buffer=buffer,
+            phase=phase,
+            rows=rows,
+            frame_index=frame_index,
+            clock=clock,
+        )
+        sleep_fn(period_s)
+    return bytes_written_total, frame_count, frame_index
 
 
 def write_pulse_sequence(
@@ -657,6 +719,111 @@ def write_pulse_sequence(
     )
 
 
+def write_stream_pulse_sequence(
+    *,
+    frames: PulseFrames,
+    port: str,
+    baud: int,
+    feedback_output: Path | None,
+    stream_rate_hz: float,
+    serial_factory: SerialFactory = open_serial_handle,
+    sleep_fn: SleepFn = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> PulseWriteResult:
+    handle = serial_factory(port, baud)
+    total = 0
+    rows: list[FeedbackLogRow] = []
+    buffer = bytearray()
+    frame_index = 0
+    frames_by_phase: dict[str, int] = {}
+    try:
+        frame_index = capture_feedback_phase(
+            handle,
+            buffer=buffer,
+            phase="baseline",
+            duration_s=BASELINE_FEEDBACK_S,
+            rows=rows,
+            frame_index=frame_index,
+            sleep_fn=sleep_fn,
+            clock=clock,
+        )
+        bytes_written, frame_count, frame_index = write_stream_phase(
+            handle,
+            frame=frames.zero_frame,
+            phase="zero_before_stream",
+            duration_s=ZERO_STREAM_DURATION_S,
+            stream_rate_hz=stream_rate_hz,
+            buffer=buffer,
+            rows=rows,
+            frame_index=frame_index,
+            sleep_fn=sleep_fn,
+            clock=clock,
+        )
+        total += bytes_written
+        frames_by_phase["zero_before_stream"] = frame_count
+        bytes_written, frame_count, frame_index = write_stream_phase(
+            handle,
+            frame=frames.pulse_frame,
+            phase="pulse_stream",
+            duration_s=frames.pulse_duration_s,
+            stream_rate_hz=stream_rate_hz,
+            buffer=buffer,
+            rows=rows,
+            frame_index=frame_index,
+            sleep_fn=sleep_fn,
+            clock=clock,
+        )
+        total += bytes_written
+        frames_by_phase["pulse_stream"] = frame_count
+        bytes_written, frame_count, frame_index = write_stream_phase(
+            handle,
+            frame=frames.zero_frame,
+            phase="zero_after_stream",
+            duration_s=STOP_STREAM_DURATION_S,
+            stream_rate_hz=stream_rate_hz,
+            buffer=buffer,
+            rows=rows,
+            frame_index=frame_index,
+            sleep_fn=sleep_fn,
+            clock=clock,
+        )
+        total += bytes_written
+        frames_by_phase["zero_after_stream"] = frame_count
+        capture_feedback_phase(
+            handle,
+            buffer=buffer,
+            phase="post",
+            duration_s=POST_FEEDBACK_S,
+            rows=rows,
+            frame_index=frame_index,
+            sleep_fn=sleep_fn,
+            clock=clock,
+        )
+    finally:
+        handle.close()
+
+    if feedback_output is not None:
+        write_feedback_csv(feedback_output, rows)
+    return PulseWriteResult(
+        real_write_performed=True,
+        bytes_written_total=total,
+        pulse_target_x=frames.pulse_target_x,
+        pulse_duration_s=frames.pulse_duration_s,
+        feedback_summary=summarize_feedback(rows),
+        stream_mode=True,
+        stream_rate_hz=stream_rate_hz,
+        frames_written_by_phase=frames_by_phase,
+    )
+
+
+def print_stream_plan(*, stream_mode: bool, stream_rate_hz: float, pulse_duration_s: float) -> None:
+    print(f"stream_mode: {str(stream_mode).lower()}")
+    print(f"stream_rate_hz: {stream_rate_hz:g}")
+    print(f"zero_stream_duration_s: {ZERO_STREAM_DURATION_S:g}")
+    print(f"pulse_stream_duration_s: {pulse_duration_s:g}")
+    print(f"stop_stream_duration_s: {STOP_STREAM_DURATION_S:g}")
+
+
 def print_planned_frames(frames: PulseFrames) -> None:
     print(f"pulse_reserved_1: 0x{frames.pulse_reserved_1:02x}")
     print(f"pulse_reserved_2: 0x{frames.pulse_reserved_2:02x}")
@@ -668,6 +835,14 @@ def print_planned_frames(frames: PulseFrames) -> None:
 def print_result(result: PulseWriteResult) -> None:
     print(f"real_write_performed: {str(result.real_write_performed).lower()}")
     print(f"bytes_written_total: {result.bytes_written_total}")
+    print(f"stream_mode: {str(result.stream_mode).lower()}")
+    print(f"stream_rate_hz: {result.stream_rate_hz:g}")
+    print(f"zero_stream_duration_s: {result.zero_stream_duration_s:g}")
+    print(f"pulse_stream_duration_s: {result.pulse_duration_s:g}")
+    print(f"stop_stream_duration_s: {result.stop_stream_duration_s:g}")
+    print(
+        f"frames_written_by_phase: {format_frames_written_by_phase(result.frames_written_by_phase)}"
+    )
     print(f"pulse_target_x: {result.pulse_target_x:g}")
     print(f"pulse_duration_s: {result.pulse_duration_s:g}")
     print(
@@ -696,6 +871,9 @@ def main(
 ) -> int:
     args = build_parser().parse_args(argv)
     try:
+        limit_reasons = validate_limits(args.target_x, args.duration, args.stream_rate_hz)
+        if limit_reasons:
+            raise ValueError(", ".join(limit_reasons))
         frames = build_pulse_frames(
             args.target_x,
             args.duration,
@@ -708,6 +886,11 @@ def main(
         return 1
 
     print_planned_frames(frames)
+    print_stream_plan(
+        stream_mode=args.stream_mode,
+        stream_rate_hz=args.stream_rate_hz,
+        pulse_duration_s=frames.pulse_duration_s,
+    )
     print(f"pulse_target_x: {frames.pulse_target_x:g}")
     print(f"pulse_duration_s: {frames.pulse_duration_s:g}")
     print("warning: wheels may spin briefly")
@@ -716,6 +899,7 @@ def main(
         print("dry_run: true")
         print("refused: execute_real_pulse_required_for_real_write")
         print("real_write_performed: false")
+        print("frames_written_by_phase: none")
         print("bytes_written_total: 0")
         return 0
 
@@ -735,16 +919,31 @@ def main(
         return 1
 
     print("WARNING: this may briefly spin the wheels. Keep wheels lifted and power cutoff ready.")
-    result = write_pulse_sequence(
-        frames=frames,
-        port=args.port,
-        baud=args.baud,
-        feedback_output=args.feedback_output,
-        serial_factory=serial_factory,
-        sleep_fn=sleep_fn,
-        clock=clock,
-    )
+    if args.stream_mode:
+        result = write_stream_pulse_sequence(
+            frames=frames,
+            port=args.port,
+            baud=args.baud,
+            feedback_output=args.feedback_output,
+            stream_rate_hz=args.stream_rate_hz,
+            serial_factory=serial_factory,
+            sleep_fn=sleep_fn,
+            clock=clock,
+        )
+    else:
+        result = write_pulse_sequence(
+            frames=frames,
+            port=args.port,
+            baud=args.baud,
+            feedback_output=args.feedback_output,
+            serial_factory=serial_factory,
+            sleep_fn=sleep_fn,
+            clock=clock,
+        )
     print_result(result)
+    if args.stream_mode:
+        expected_frames = sum(result.frames_written_by_phase.values())
+        return 0 if result.bytes_written_total == expected_frames * 11 else 1
     return 0 if result.bytes_written_total == 44 else 1
 
 

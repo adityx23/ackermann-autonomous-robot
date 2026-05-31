@@ -205,6 +205,27 @@ def test_tiny_forward_pulse_refuses_without_safety_flags(capsys):
     assert fake_serial.write_calls == []
 
 
+def test_tiny_forward_pulse_dry_run_stream_mode_writes_nothing(capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+
+    exit_code = module.main(
+        ["--stream-mode"],
+        serial_factory=lambda _port, _baud: fake_serial,
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "stream_mode: true" in output
+    assert "stream_rate_hz: 20" in output
+    assert "zero_stream_duration_s: 0.2" in output
+    assert "pulse_stream_duration_s: 0.1" in output
+    assert "stop_stream_duration_s: 0.3" in output
+    assert "frames_written_by_phase: none" in output
+    assert "bytes_written_total: 0" in output
+    assert fake_serial.write_calls == []
+
+
 def test_tiny_forward_pulse_refuses_target_x_above_limit(capsys):
     module = load_pulse_script()
     fake_serial = FakeSerial()
@@ -392,6 +413,55 @@ def test_tiny_forward_pulse_refuses_after_all_readiness_retries_fail(monkeypatch
     assert fake_serial.write_calls == []
 
 
+def test_tiny_forward_pulse_real_stream_mode_writes_zero_pulse_zero_frames(monkeypatch, capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+    clock = StepClock()
+    monkeypatch.setattr(
+        module,
+        "run_internal_readiness",
+        lambda _args: FakeReadinessReport(readiness_allowed=True),
+    )
+
+    exit_code = module.main(
+        [*all_real_pulse_args(), "--stream-mode", "--stream-rate-hz", "20"],
+        serial_factory=lambda _port, _baud: fake_serial,
+        sleep_fn=clock.sleep,
+        clock=clock,
+    )
+
+    output = capsys.readouterr().out
+    frames = module.build_pulse_frames(0.03, 0.10)
+    assert exit_code == 0
+    assert fake_serial.write_calls == (
+        [frames.zero_frame] * 4 + [frames.pulse_frame] * 2 + [frames.zero_frame] * 6
+    )
+    assert fake_serial.flush_calls == 12
+    assert fake_serial.close_calls == 1
+    assert "stream_mode: true" in output
+    assert (
+        "frames_written_by_phase: zero_before_stream=4, pulse_stream=2, zero_after_stream=6"
+        in output
+    )
+    assert "bytes_written_total: 132" in output
+
+
+def test_tiny_forward_pulse_refuses_stream_rate_above_limit(capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+
+    exit_code = module.main(
+        ["--stream-mode", "--stream-rate-hz", "50.1"],
+        serial_factory=lambda _port, _baud: fake_serial,
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "stream_rate_hz_exceeds_50_limit" in output
+    assert "real_write_performed: false" in output
+    assert fake_serial.write_calls == []
+
+
 def test_tiny_forward_pulse_sends_safe_zero_pulse_safe_zero_safe_zero_when_armed(
     monkeypatch, capsys
 ):
@@ -443,6 +513,57 @@ def test_tiny_forward_pulse_sends_safe_zero_pulse_safe_zero_safe_zero_when_armed
     assert "pulse_target_x: 0.03" in output
     assert "pulse_duration_s: 0.1" in output
     assert "warning: wheels may spin briefly" in output
+
+
+def test_tiny_forward_pulse_stream_feedback_csv_rows_include_stream_phase_labels(
+    monkeypatch, tmp_path: Path
+):
+    module = load_pulse_script()
+    read_chunks = [
+        feedback_frame(0),
+        feedback_frame(0),
+        feedback_frame(0),
+        feedback_frame(7),
+        feedback_frame(1),
+        feedback_frame(1),
+        feedback_frame(1),
+        feedback_frame(0),
+    ]
+    fake_serial = FakeSerial(read_chunks=read_chunks)
+    clock = StepClock()
+    output_path = tmp_path / "stream_feedback.csv"
+    monkeypatch.setattr(
+        module,
+        "run_internal_readiness",
+        lambda _args: FakeReadinessReport(readiness_allowed=True),
+    )
+
+    exit_code = module.main(
+        [
+            *all_real_pulse_args(),
+            "--stream-mode",
+            "--stream-rate-hz",
+            "10",
+            "--feedback-output",
+            str(output_path),
+        ],
+        serial_factory=lambda _port, _baud: fake_serial,
+        sleep_fn=clock.sleep,
+        clock=clock,
+    )
+
+    assert exit_code == 0
+    rows = list(csv.DictReader(output_path.open(encoding="utf-8")))
+    assert [row["phase"] for row in rows] == [
+        "baseline",
+        "zero_before_stream",
+        "zero_before_stream",
+        "pulse_stream",
+        "zero_after_stream",
+        "zero_after_stream",
+        "zero_after_stream",
+        "post",
+    ]
 
 
 def test_tiny_forward_pulse_feedback_csv_rows_include_phase_labels(monkeypatch, tmp_path: Path):
