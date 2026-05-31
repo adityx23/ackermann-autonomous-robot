@@ -19,6 +19,7 @@ for path in (SRC_ROOT, SCRIPT_ROOT):
 DEFAULT_PORT = "/dev/c30d"
 DEFAULT_BAUD = 115200
 DEFAULT_PREFLIGHT_DURATION_S = 5.0
+DEFAULT_C30D_WARMUP_DURATION_S = 1.0
 DEFAULT_TARGET_X = 0.03
 MAX_ABS_TARGET_X = 0.05
 DEFAULT_PULSE_DURATION_S = 0.10
@@ -147,6 +148,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--preflight-duration", type=float, default=DEFAULT_PREFLIGHT_DURATION_S)
     parser.add_argument(
+        "--c30d-warmup-duration",
+        type=parse_nonnegative_duration,
+        default=DEFAULT_C30D_WARMUP_DURATION_S,
+        help="Read/discard C30D feedback for this many seconds before counted readiness validation.",
+    )
+    parser.add_argument(
         "--readiness-retries",
         type=parse_readiness_retries,
         default=DEFAULT_READINESS_RETRIES,
@@ -203,6 +210,16 @@ def parse_retry_delay(value: str) -> float:
         raise argparse.ArgumentTypeError("retry_delay must be nonnegative") from exc
     if parsed < 0.0:
         raise argparse.ArgumentTypeError("retry_delay must be nonnegative")
+    return parsed
+
+
+def parse_nonnegative_duration(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("duration must be nonnegative") from exc
+    if parsed < 0.0:
+        raise argparse.ArgumentTypeError("duration must be nonnegative")
     return parsed
 
 
@@ -307,9 +324,14 @@ def run_internal_readiness(args: argparse.Namespace):
                 args.preflight_results,
                 mode=args.preflight_mode,
                 duration_s=args.preflight_duration,
+                c30d_warmup_duration_s=args.c30d_warmup_duration,
             )
             if args.preflight_results is not None
-            else readiness.run_readonly_preflight(args.preflight_duration, args.preflight_mode)
+            else readiness.run_readonly_preflight(
+                args.preflight_duration,
+                args.preflight_mode,
+                args.c30d_warmup_duration,
+            )
         )
         threshold = readiness.load_warning_battery_threshold()
     except (OSError, ValueError) as exc:

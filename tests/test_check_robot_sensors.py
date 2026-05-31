@@ -5,6 +5,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from ackermann_robot.drivers.c30d_checksum import compute_feedback_checksum
+from ackermann_robot.drivers.c30d_frames import FRAME_LENGTH
+
 
 def load_check_script():
     script_path = Path(__file__).resolve().parents[1] / "scripts" / "check_robot_sensors.py"
@@ -17,6 +20,47 @@ def load_check_script():
     return module
 
 
+def make_feedback_frame(*, checksum_valid: bool = True, battery_mv: int = 12000) -> bytes:
+    frame = bytearray([0x7B, *([0x00] * (FRAME_LENGTH - 2)), 0x7D])
+    frame[20:22] = int(battery_mv).to_bytes(2, "big", signed=False)
+    frame[22] = compute_feedback_checksum(frame)
+    if not checksum_valid:
+        frame[22] ^= 0x01
+    return bytes(frame)
+
+
+class StepClock:
+    def __init__(self, step_s: float = 0.6) -> None:
+        self.value = 0.0
+        self.step_s = step_s
+
+    def __call__(self) -> float:
+        current = self.value
+        self.value += self.step_s
+        return current
+
+
+def run_fake_c30d_check(module, monkeypatch, chunks: list[bytes]):
+    import monitor_c30d_feedback_readonly
+
+    read_chunks = list(chunks)
+    monkeypatch.setattr(
+        monitor_c30d_feedback_readonly, "open_readonly_serial_fd", lambda *_args: 99
+    )
+    monkeypatch.setattr(module.os, "close", lambda _fd: None)
+    monkeypatch.setattr(
+        module.os, "read", lambda _fd, _size: read_chunks.pop(0) if read_chunks else b""
+    )
+    monkeypatch.setattr(module.time, "monotonic", StepClock())
+    return module.check_c30d_readonly(
+        "/tmp/c30d",
+        1.0,
+        min_frame_rate_hz=0.1,
+        warmup_duration_s=1.0,
+        battery_config=module.BatterySafetyConfig(),
+    )
+
+
 def test_parser_defaults_enable_all_checks():
     module = load_check_script()
 
@@ -27,6 +71,7 @@ def test_parser_defaults_enable_all_checks():
     assert args.check_oak is True
     assert args.duration == 3.0
     assert args.c30d_port == "/dev/c30d"
+    assert args.c30d_warmup_duration == 0.0
     assert args.rplidar_port == "/dev/rplidar"
 
 
@@ -42,6 +87,8 @@ def test_parser_can_disable_individual_checks():
             "1.5",
             "--c30d-port",
             "/tmp/c30d",
+            "--c30d-warmup-duration",
+            "0.5",
             "--rplidar-port",
             "/tmp/rplidar",
         ]
@@ -52,6 +99,7 @@ def test_parser_can_disable_individual_checks():
     assert args.check_oak is False
     assert args.duration == 1.5
     assert args.c30d_port == "/tmp/c30d"
+    assert args.c30d_warmup_duration == 0.5
     assert args.rplidar_port == "/tmp/rplidar"
 
 
@@ -65,6 +113,57 @@ def test_validate_args_rejects_nonpositive_duration():
         assert "--duration" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_validate_args_rejects_negative_c30d_warmup_duration():
+    module = load_check_script()
+    args = module.build_parser().parse_args(["--c30d-warmup-duration", "-0.1"])
+
+    try:
+        module.validate_args(args)
+    except ValueError as exc:
+        assert "--c30d-warmup-duration" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_invalid_checksum_during_c30d_warmup_is_not_counted(monkeypatch):
+    module = load_check_script()
+
+    result = run_fake_c30d_check(
+        module,
+        monkeypatch,
+        [
+            make_feedback_frame(checksum_valid=False),
+            make_feedback_frame(checksum_valid=True),
+        ],
+    )
+
+    assert result.passed is True
+    assert result.details["c30d_warmup_duration_s"] == 1.0
+    assert result.details["warmup_frame_count"] == 1
+    assert result.details["counted_frame_count"] == 1
+    assert result.details["invalid_checksum_count"] == 0
+    assert result.details["counted_invalid_checksum_count"] == 0
+
+
+def test_invalid_checksum_during_counted_c30d_window_is_counted(monkeypatch):
+    module = load_check_script()
+
+    result = run_fake_c30d_check(
+        module,
+        monkeypatch,
+        [
+            make_feedback_frame(checksum_valid=True),
+            make_feedback_frame(checksum_valid=False),
+        ],
+    )
+
+    assert result.passed is False
+    assert result.details["warmup_frame_count"] == 1
+    assert result.details["counted_frame_count"] == 1
+    assert result.details["invalid_checksum_count"] == 1
+    assert result.details["counted_invalid_checksum_count"] == 1
 
 
 def test_frame_rate_handles_elapsed_time():

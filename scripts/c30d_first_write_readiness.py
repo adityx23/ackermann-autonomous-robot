@@ -23,6 +23,7 @@ REQUIRED_CONFIRMATIONS = (
     "i_understand_this_is_not_a_motor_test",
 )
 DEFAULT_PREFLIGHT_DURATION_S = 5.0
+DEFAULT_C30D_WARMUP_DURATION_S = 1.0
 PREFLIGHT_MODE_C30D_ONLY = "c30d_only"
 PREFLIGHT_MODE_FULL_SENSOR = "full_sensor"
 
@@ -34,6 +35,10 @@ class PreflightSummary:
     frame_rate_hz: float | None = None
     frame_rate_threshold_hz: float | None = None
     invalid_checksum_count: int | None = None
+    c30d_warmup_duration_s: float = DEFAULT_C30D_WARMUP_DURATION_S
+    warmup_frame_count: int | None = None
+    counted_frame_count: int | None = None
+    counted_invalid_checksum_count: int | None = None
     battery_warning_reasons: tuple[str, ...] = ()
     battery_block_reasons: tuple[str, ...] = ()
     mode: str = PREFLIGHT_MODE_C30D_ONLY
@@ -76,6 +81,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional JSON file containing read-only preflight results to consume instead of running preflight.",
     )
     parser.add_argument("--preflight-duration", type=float, default=DEFAULT_PREFLIGHT_DURATION_S)
+    parser.add_argument(
+        "--c30d-warmup-duration",
+        type=float,
+        default=DEFAULT_C30D_WARMUP_DURATION_S,
+        help="Read/discard C30D feedback for this many seconds before counted validation.",
+    )
     parser.add_argument(
         "--c30d-only-preflight",
         dest="preflight_mode",
@@ -145,6 +156,7 @@ def preflight_summary_from_results(
     results: list[Any],
     mode: str = PREFLIGHT_MODE_C30D_ONLY,
     duration_s: float = DEFAULT_PREFLIGHT_DURATION_S,
+    c30d_warmup_duration_s: float = DEFAULT_C30D_WARMUP_DURATION_S,
 ) -> PreflightSummary:
     c30d = next((result for result in results if getattr(result, "name", None) == "c30d"), None)
     passed = all(bool(getattr(result, "passed", False)) for result in results)
@@ -154,15 +166,25 @@ def preflight_summary_from_results(
             candidate_battery_mV=None,
             mode=mode,
             duration_s=duration_s,
+            c30d_warmup_duration_s=c30d_warmup_duration_s,
         )
 
     details = getattr(c30d, "details", {})
+    counted_invalid_checksum_count = _coerce_optional_int(
+        details.get("counted_invalid_checksum_count", details.get("invalid_checksum_count"))
+    )
     return PreflightSummary(
         passed=passed,
         candidate_battery_mV=details.get("candidate_battery_mV_min"),
         frame_rate_hz=_coerce_optional_float(details.get("frame_rate_hz")),
         frame_rate_threshold_hz=_coerce_optional_float(details.get("threshold_hz")),
-        invalid_checksum_count=_coerce_optional_int(details.get("invalid_checksum_count")),
+        invalid_checksum_count=counted_invalid_checksum_count,
+        c30d_warmup_duration_s=float(details.get("c30d_warmup_duration_s", c30d_warmup_duration_s)),
+        warmup_frame_count=_coerce_optional_int(details.get("warmup_frame_count")),
+        counted_frame_count=_coerce_optional_int(
+            details.get("counted_frame_count", details.get("frame_count"))
+        ),
+        counted_invalid_checksum_count=counted_invalid_checksum_count,
         battery_warning_reasons=tuple(details.get("battery_warning_reasons", ())),
         battery_block_reasons=tuple(details.get("battery_block_reasons", ())),
         mode=mode,
@@ -174,10 +196,17 @@ def preflight_summary_from_json(
     path: Path,
     mode: str = PREFLIGHT_MODE_C30D_ONLY,
     duration_s: float = DEFAULT_PREFLIGHT_DURATION_S,
+    c30d_warmup_duration_s: float = DEFAULT_C30D_WARMUP_DURATION_S,
 ) -> PreflightSummary:
     data = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(data, dict) and "preflight" in data:
         preflight = data["preflight"]
+        counted_invalid_checksum_count = _coerce_optional_int(
+            preflight.get(
+                "counted_invalid_checksum_count",
+                preflight.get("invalid_checksum_count"),
+            )
+        )
         return PreflightSummary(
             passed=bool(preflight.get("passed", False)),
             candidate_battery_mV=preflight.get("candidate_battery_mV"),
@@ -185,7 +214,15 @@ def preflight_summary_from_json(
             frame_rate_threshold_hz=_coerce_optional_float(
                 preflight.get("frame_rate_threshold_hz") or preflight.get("threshold_hz")
             ),
-            invalid_checksum_count=_coerce_optional_int(preflight.get("invalid_checksum_count")),
+            invalid_checksum_count=counted_invalid_checksum_count,
+            c30d_warmup_duration_s=float(
+                preflight.get("c30d_warmup_duration_s", c30d_warmup_duration_s)
+            ),
+            warmup_frame_count=_coerce_optional_int(preflight.get("warmup_frame_count")),
+            counted_frame_count=_coerce_optional_int(
+                preflight.get("counted_frame_count", preflight.get("frame_count"))
+            ),
+            counted_invalid_checksum_count=counted_invalid_checksum_count,
             battery_warning_reasons=tuple(preflight.get("battery_warning_reasons", ())),
             battery_block_reasons=tuple(preflight.get("battery_block_reasons", ())),
             mode=str(preflight.get("mode", mode)),
@@ -202,12 +239,21 @@ def preflight_summary_from_json(
         None,
     )
     details = c30d.get("details", {}) if isinstance(c30d, dict) else {}
+    counted_invalid_checksum_count = _coerce_optional_int(
+        details.get("counted_invalid_checksum_count", details.get("invalid_checksum_count"))
+    )
     return PreflightSummary(
         passed=passed,
         candidate_battery_mV=details.get("candidate_battery_mV_min"),
         frame_rate_hz=_coerce_optional_float(details.get("frame_rate_hz")),
         frame_rate_threshold_hz=_coerce_optional_float(details.get("threshold_hz")),
-        invalid_checksum_count=_coerce_optional_int(details.get("invalid_checksum_count")),
+        invalid_checksum_count=counted_invalid_checksum_count,
+        c30d_warmup_duration_s=float(details.get("c30d_warmup_duration_s", c30d_warmup_duration_s)),
+        warmup_frame_count=_coerce_optional_int(details.get("warmup_frame_count")),
+        counted_frame_count=_coerce_optional_int(
+            details.get("counted_frame_count", details.get("frame_count"))
+        ),
+        counted_invalid_checksum_count=counted_invalid_checksum_count,
         battery_warning_reasons=tuple(details.get("battery_warning_reasons", ())),
         battery_block_reasons=tuple(details.get("battery_block_reasons", ())),
         mode=mode,
@@ -218,11 +264,17 @@ def preflight_summary_from_json(
 def run_readonly_preflight(
     duration_s: float,
     mode: str = PREFLIGHT_MODE_C30D_ONLY,
+    c30d_warmup_duration_s: float = DEFAULT_C30D_WARMUP_DURATION_S,
 ) -> PreflightSummary:
     from check_robot_sensors import build_parser as build_preflight_parser
     from check_robot_sensors import print_summary, run_preflight_checks
 
-    argv = ["--duration", str(duration_s)]
+    argv = [
+        "--duration",
+        str(duration_s),
+        "--c30d-warmup-duration",
+        str(c30d_warmup_duration_s),
+    ]
     if mode == PREFLIGHT_MODE_C30D_ONLY:
         argv.extend(["--no-check-rplidar", "--no-check-oak"])
     elif mode != PREFLIGHT_MODE_FULL_SENSOR:
@@ -230,7 +282,12 @@ def run_readonly_preflight(
     args = build_preflight_parser().parse_args(argv)
     results = run_preflight_checks(args)
     print_summary(results)
-    return preflight_summary_from_results(results, mode=mode, duration_s=duration_s)
+    return preflight_summary_from_results(
+        results,
+        mode=mode,
+        duration_s=duration_s,
+        c30d_warmup_duration_s=c30d_warmup_duration_s,
+    )
 
 
 def load_warning_battery_threshold() -> int:
@@ -312,6 +369,10 @@ def print_report(report: ReadinessReport) -> None:
     print(f"preflight_mode: {report.preflight_mode}")
     print(f"preflight_duration_s: {report.preflight_duration_s:g}")
     print(f"preflight_status: {'PASS' if report.preflight.passed else 'FAIL'}")
+    print(f"c30d_warmup_duration_s: {report.preflight.c30d_warmup_duration_s:g}")
+    print(f"warmup_frame_count: {report.preflight.warmup_frame_count}")
+    print(f"counted_frame_count: {report.preflight.counted_frame_count}")
+    print(f"counted_invalid_checksum_count: {report.preflight.counted_invalid_checksum_count}")
     print(f"c30d_frame_rate_hz: {report.preflight.frame_rate_hz}")
     print(f"c30d_frame_rate_threshold_hz: {report.preflight.frame_rate_threshold_hz}")
     print(f"invalid_checksum_count: {report.preflight.invalid_checksum_count}")
@@ -337,9 +398,14 @@ def main(argv: list[str] | None = None) -> int:
                 args.preflight_results,
                 mode=args.preflight_mode,
                 duration_s=args.preflight_duration,
+                c30d_warmup_duration_s=args.c30d_warmup_duration,
             )
             if args.preflight_results is not None
-            else run_readonly_preflight(args.preflight_duration, args.preflight_mode)
+            else run_readonly_preflight(
+                args.preflight_duration,
+                args.preflight_mode,
+                args.c30d_warmup_duration,
+            )
         )
         threshold = load_warning_battery_threshold()
     except (OSError, ValueError) as exc:

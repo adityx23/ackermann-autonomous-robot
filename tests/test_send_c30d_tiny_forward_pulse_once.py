@@ -262,6 +262,52 @@ def test_tiny_forward_pulse_refuses_when_readiness_false(monkeypatch, capsys):
     assert fake_serial.write_calls == []
 
 
+def test_tiny_forward_pulse_default_c30d_warmup_duration_is_passed_to_readiness(
+    monkeypatch, capsys
+):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+    captured = {}
+
+    def fake_readiness(args):
+        captured["c30d_warmup_duration"] = args.c30d_warmup_duration
+        return FakeReadinessReport(readiness_allowed=True)
+
+    monkeypatch.setattr(module, "run_internal_readiness", fake_readiness)
+
+    exit_code = module.main(
+        all_real_pulse_args(),
+        serial_factory=lambda _port, _baud: fake_serial,
+        sleep_fn=lambda _seconds: None,
+    )
+
+    capsys.readouterr()
+    assert exit_code == 0
+    assert captured == {"c30d_warmup_duration": 1.0}
+
+
+def test_tiny_forward_pulse_custom_c30d_warmup_duration_is_passed_to_readiness(monkeypatch, capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+    captured = {}
+
+    def fake_readiness(args):
+        captured["c30d_warmup_duration"] = args.c30d_warmup_duration
+        return FakeReadinessReport(readiness_allowed=True)
+
+    monkeypatch.setattr(module, "run_internal_readiness", fake_readiness)
+
+    exit_code = module.main(
+        [*all_real_pulse_args(), "--c30d-warmup-duration", "1.5"],
+        serial_factory=lambda _port, _baud: fake_serial,
+        sleep_fn=lambda _seconds: None,
+    )
+
+    capsys.readouterr()
+    assert exit_code == 0
+    assert captured == {"c30d_warmup_duration": 1.5}
+
+
 def test_tiny_forward_pulse_retries_readiness_then_writes_on_clean_attempt(monkeypatch, capsys):
     module = load_pulse_script()
     fake_serial = FakeSerial()

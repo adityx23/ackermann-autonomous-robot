@@ -29,6 +29,10 @@ def stable_preflight(module, **overrides):
         "frame_rate_hz": 25.0,
         "frame_rate_threshold_hz": 10.0,
         "invalid_checksum_count": 0,
+        "c30d_warmup_duration_s": module.DEFAULT_C30D_WARMUP_DURATION_S,
+        "warmup_frame_count": 20,
+        "counted_frame_count": 125,
+        "counted_invalid_checksum_count": 0,
         "mode": module.PREFLIGHT_MODE_C30D_ONLY,
         "duration_s": 5.0,
     }
@@ -42,6 +46,7 @@ def test_readiness_parser_defaults_to_five_second_c30d_only_preflight():
     args = module.build_parser().parse_args([])
 
     assert args.preflight_duration == 5.0
+    assert args.c30d_warmup_duration == 1.0
     assert args.preflight_mode == module.PREFLIGHT_MODE_C30D_ONLY
 
 
@@ -62,6 +67,23 @@ def test_c30d_only_readiness_passes_when_c30d_is_stable():
     assert report.zero_frame_validation.valid is True
 
 
+def test_readiness_prints_c30d_warmup_and_counted_fields(capsys):
+    module = load_readiness_script()
+
+    report = module.evaluate_readiness(
+        all_confirmations(),
+        stable_preflight(module, warmup_frame_count=25, counted_frame_count=252),
+        warning_battery_mV=10800,
+    )
+    module.print_report(report)
+
+    output = capsys.readouterr().out
+    assert "c30d_warmup_duration_s: 1" in output
+    assert "warmup_frame_count: 25" in output
+    assert "counted_frame_count: 252" in output
+    assert "counted_invalid_checksum_count: 0" in output
+
+
 def test_c30d_only_readiness_fails_with_invalid_checksum(capsys):
     module = load_readiness_script()
 
@@ -77,6 +99,60 @@ def test_c30d_only_readiness_fails_with_invalid_checksum(capsys):
     assert "invalid_c30d_checksum_frames_observed" in report.reasons
     assert "invalid_checksum_count: 1" in output
     assert "rerun after checking USB/serial stability" in output
+
+
+def test_warmup_invalid_checksum_is_not_counted_for_readiness():
+    module = load_readiness_script()
+    import check_robot_sensors
+
+    preflight = module.preflight_summary_from_results(
+        [
+            check_robot_sensors.CheckResult("data", True, "ok", {}),
+            check_robot_sensors.CheckResult("data/runs", True, "ok", {}),
+            check_robot_sensors.CheckResult("device:/dev/c30d", True, "ok", {}),
+            check_robot_sensors.CheckResult(
+                "c30d",
+                True,
+                "warmup discarded invalid checksum; counted window clean",
+                {
+                    "candidate_battery_mV_min": 11000,
+                    "frame_rate_hz": 25.0,
+                    "threshold_hz": 10.0,
+                    "c30d_warmup_duration_s": 1.0,
+                    "warmup_frame_count": 20,
+                    "counted_frame_count": 252,
+                    "counted_invalid_checksum_count": 0,
+                },
+            ),
+        ],
+    )
+
+    report = module.evaluate_readiness(all_confirmations(), preflight, warning_battery_mV=10800)
+
+    assert report.readiness_allowed is True
+    assert report.reasons == ()
+    assert report.preflight.warmup_frame_count == 20
+    assert report.preflight.counted_frame_count == 252
+    assert report.preflight.invalid_checksum_count == 0
+
+
+def test_counted_invalid_checksum_fails_readiness_after_warmup():
+    module = load_readiness_script()
+
+    report = module.evaluate_readiness(
+        all_confirmations(),
+        stable_preflight(
+            module,
+            invalid_checksum_count=1,
+            counted_invalid_checksum_count=1,
+            warmup_frame_count=20,
+            counted_frame_count=252,
+        ),
+        warning_battery_mV=10800,
+    )
+
+    assert report.readiness_allowed is False
+    assert "invalid_c30d_checksum_frames_observed" in report.reasons
 
 
 def test_readiness_fails_when_c30d_frame_rate_below_threshold():
@@ -151,6 +227,7 @@ def test_full_sensor_mode_still_uses_all_sensor_checks(monkeypatch):
 
     def fake_run_preflight_checks(args):
         captured["duration"] = args.duration
+        captured["c30d_warmup_duration"] = args.c30d_warmup_duration
         captured["check_c30d"] = args.check_c30d
         captured["check_rplidar"] = args.check_rplidar
         captured["check_oak"] = args.check_oak
@@ -167,6 +244,10 @@ def test_full_sensor_mode_still_uses_all_sensor_checks(monkeypatch):
                     "frame_rate_hz": 25.0,
                     "threshold_hz": 10.0,
                     "invalid_checksum_count": 0,
+                    "c30d_warmup_duration_s": 1.0,
+                    "warmup_frame_count": 20,
+                    "counted_frame_count": 125,
+                    "counted_invalid_checksum_count": 0,
                 },
             ),
             check_robot_sensors.CheckResult("device:/dev/rplidar", True, "ok", {}),
@@ -184,6 +265,7 @@ def test_full_sensor_mode_still_uses_all_sensor_checks(monkeypatch):
     assert preflight.duration_s == 6.0
     assert captured == {
         "duration": 6.0,
+        "c30d_warmup_duration": 1.0,
         "check_c30d": True,
         "check_rplidar": True,
         "check_oak": True,
@@ -197,6 +279,7 @@ def test_c30d_only_mode_disables_rplidar_and_oak(monkeypatch):
     captured = {}
 
     def fake_run_preflight_checks(args):
+        captured["c30d_warmup_duration"] = args.c30d_warmup_duration
         captured["check_rplidar"] = args.check_rplidar
         captured["check_oak"] = args.check_oak
         return [
@@ -212,6 +295,10 @@ def test_c30d_only_mode_disables_rplidar_and_oak(monkeypatch):
                     "frame_rate_hz": 25.0,
                     "threshold_hz": 10.0,
                     "invalid_checksum_count": 0,
+                    "c30d_warmup_duration_s": 1.0,
+                    "warmup_frame_count": 20,
+                    "counted_frame_count": 125,
+                    "counted_invalid_checksum_count": 0,
                 },
             ),
         ]
@@ -223,7 +310,11 @@ def test_c30d_only_mode_disables_rplidar_and_oak(monkeypatch):
 
     assert preflight.passed is True
     assert preflight.mode == module.PREFLIGHT_MODE_C30D_ONLY
-    assert captured == {"check_rplidar": False, "check_oak": False}
+    assert captured == {
+        "c30d_warmup_duration": 1.0,
+        "check_rplidar": False,
+        "check_oak": False,
+    }
 
 
 def test_readiness_cli_consumes_json_preflight_results(tmp_path: Path, capsys):
@@ -238,6 +329,10 @@ def test_readiness_cli_consumes_json_preflight_results(tmp_path: Path, capsys):
                     "frame_rate_hz": 25.0,
                     "frame_rate_threshold_hz": 10.0,
                     "invalid_checksum_count": 0,
+                    "c30d_warmup_duration_s": 1.0,
+                    "warmup_frame_count": 20,
+                    "counted_frame_count": 125,
+                    "counted_invalid_checksum_count": 0,
                     "mode": "c30d_only",
                     "duration_s": 5.0,
                 }
@@ -264,6 +359,10 @@ def test_readiness_cli_consumes_json_preflight_results(tmp_path: Path, capsys):
     assert "preflight_mode: c30d_only" in output
     assert "preflight_duration_s: 5" in output
     assert "preflight_status: PASS" in output
+    assert "c30d_warmup_duration_s: 1" in output
+    assert "warmup_frame_count: 20" in output
+    assert "counted_frame_count: 125" in output
+    assert "counted_invalid_checksum_count: 0" in output
     assert "invalid_checksum_count: 0" in output
     assert "battery_candidate_mV: 11000" in output
     assert "zero_frame_hex: 7b 00 00 00 00 00 00 00 00 7b 7d" in output

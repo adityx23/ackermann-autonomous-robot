@@ -28,6 +28,7 @@ DEFAULT_C30D_MIN_FRAME_RATE_HZ = 10.0
 DEFAULT_RPLIDAR_MIN_VALID_POINTS = 20
 DEFAULT_PREFLIGHT_DIR = Path("data/preflight")
 DEFAULT_C30D_MAX_INVALID_CHECKSUM_PERCENT = 1.0
+DEFAULT_C30D_WARMUP_DURATION_S = 0.0
 DEFAULT_BATTERY_SAFETY_CONFIG = Path("config/battery_safety.yaml")
 
 
@@ -63,6 +64,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Short C30D/RPLIDAR check duration in seconds.",
     )
     parser.add_argument("--c30d-port", default=DEFAULT_C30D_PORT, help="C30D read-only port.")
+    parser.add_argument(
+        "--c30d-warmup-duration",
+        type=float,
+        default=DEFAULT_C30D_WARMUP_DURATION_S,
+        help="C30D read/discard warmup duration before counted validation.",
+    )
     parser.add_argument("--rplidar-port", default=DEFAULT_RPLIDAR_PORT, help="RPLIDAR port.")
     return parser
 
@@ -70,6 +77,8 @@ def build_parser() -> argparse.ArgumentParser:
 def validate_args(args: argparse.Namespace) -> None:
     if args.duration <= 0.0:
         raise ValueError("--duration must be greater than zero")
+    if args.c30d_warmup_duration < 0.0:
+        raise ValueError("--c30d-warmup-duration must be nonnegative")
 
 
 def status_text(passed: bool) -> str:
@@ -161,6 +170,7 @@ def check_c30d_readonly(
     min_frame_rate_hz: float = DEFAULT_C30D_MIN_FRAME_RATE_HZ,
     max_invalid_checksum_percent: float = DEFAULT_C30D_MAX_INVALID_CHECKSUM_PERCENT,
     battery_config: BatterySafetyConfig | None = None,
+    warmup_duration_s: float = DEFAULT_C30D_WARMUP_DURATION_S,
 ) -> CheckResult:
     from ackermann_robot.drivers.c30d_feedback import parse_feedback_candidates
     from monitor_c30d_feedback_readonly import (
@@ -170,45 +180,63 @@ def check_c30d_readonly(
     )
 
     buffer = bytearray()
-    parsed_count = 0
-    invalid_checksum_count = 0
+    warmup_frame_count = 0
+    counted_frame_count = 0
+    counted_invalid_checksum_count = 0
     candidate_battery_values: list[int] = []
-    start_s = time.monotonic()
-    deadline_s = start_s + duration_s
+    open_s = time.monotonic()
+    warmup_deadline_s = open_s + warmup_duration_s
+    counted_start_s = warmup_deadline_s
+    counted_deadline_s = counted_start_s + duration_s
     fd: int | None = None
 
     try:
         fd = open_readonly_serial_fd(port, baud)
-        while time.monotonic() < deadline_s:
+        while time.monotonic() < warmup_deadline_s:
+            chunk = os.read(fd, READ_SIZE)
+            if not chunk:
+                continue
+            warmup_frame_count += len(extract_fixed_frames_from_buffer(buffer, chunk))
+
+        buffer.clear()
+        counted_start_s = time.monotonic()
+        counted_deadline_s = counted_start_s + duration_s
+        while time.monotonic() < counted_deadline_s:
             chunk = os.read(fd, READ_SIZE)
             if not chunk:
                 continue
             for frame in extract_fixed_frames_from_buffer(buffer, chunk):
                 candidate = parse_feedback_candidates([frame])[0]
-                parsed_count += 1
+                counted_frame_count += 1
                 if not candidate.checksum_valid:
-                    invalid_checksum_count += 1
+                    counted_invalid_checksum_count += 1
                 candidate_battery_values.append(candidate.candidate_battery_mV)
     except Exception as exc:
-        elapsed_s = max(time.monotonic() - start_s, 0.0)
+        elapsed_s = max(time.monotonic() - counted_start_s, 0.0)
         return CheckResult(
             name="c30d",
             passed=False,
             message=f"read-only C30D check failed: {exc}",
             details={
-                "frame_count": parsed_count,
+                "c30d_warmup_duration_s": warmup_duration_s,
+                "warmup_frame_count": warmup_frame_count,
+                "frame_count": counted_frame_count,
+                "counted_frame_count": counted_frame_count,
                 "elapsed_s": elapsed_s,
                 "frame_rate_hz": 0.0,
-                "invalid_checksum_count": invalid_checksum_count,
+                "invalid_checksum_count": counted_invalid_checksum_count,
+                "counted_invalid_checksum_count": counted_invalid_checksum_count,
             },
         )
     finally:
         if fd is not None:
             os.close(fd)
 
-    elapsed_s = max(time.monotonic() - start_s, 0.0)
-    rate_hz = frame_rate(parsed_count, elapsed_s)
-    invalid_percent = invalid_checksum_percentage(parsed_count, invalid_checksum_count)
+    elapsed_s = max(time.monotonic() - counted_start_s, 0.0)
+    rate_hz = frame_rate(counted_frame_count, elapsed_s)
+    invalid_percent = invalid_checksum_percentage(
+        counted_frame_count, counted_invalid_checksum_count
+    )
     battery_stats = numeric_stats(candidate_battery_values)
     battery_config = battery_config or load_battery_safety_config()
     battery_warnings, battery_block_reasons = battery_warnings_and_reasons(
@@ -224,20 +252,25 @@ def check_c30d_readonly(
         name="c30d",
         passed=passed,
         message=(
-            f"frames={parsed_count} frame_rate_hz={rate_hz:.2f} "
+            f"warmup_frames={warmup_frame_count} "
+            f"counted_frames={counted_frame_count} frame_rate_hz={rate_hz:.2f} "
             f"threshold_hz={min_frame_rate_hz:.2f} "
-            f"invalid_checksum_count={invalid_checksum_count} "
+            f"counted_invalid_checksum_count={counted_invalid_checksum_count} "
             f"invalid_checksum_percent={invalid_percent:.2f} "
             f"candidate_battery_mV_min={battery_stats['min']} "
             f"candidate_battery_mV_mean={battery_stats['mean']} "
             f"candidate_battery_mV_max={battery_stats['max']}"
         ),
         details={
-            "frame_count": parsed_count,
+            "c30d_warmup_duration_s": warmup_duration_s,
+            "warmup_frame_count": warmup_frame_count,
+            "frame_count": counted_frame_count,
+            "counted_frame_count": counted_frame_count,
             "elapsed_s": elapsed_s,
             "frame_rate_hz": rate_hz,
             "threshold_hz": min_frame_rate_hz,
-            "invalid_checksum_count": invalid_checksum_count,
+            "invalid_checksum_count": counted_invalid_checksum_count,
+            "counted_invalid_checksum_count": counted_invalid_checksum_count,
             "invalid_checksum_percent": invalid_percent,
             "max_invalid_checksum_percent": max_invalid_checksum_percent,
             "candidate_battery_mV_min": battery_stats["min"],
@@ -349,7 +382,13 @@ def run_preflight_checks(args: argparse.Namespace) -> list[CheckResult]:
 
     if args.check_c30d:
         results.append(check_path_exists("device:/dev/c30d", Path(args.c30d_port)))
-        results.append(check_c30d_readonly(args.c30d_port, args.duration))
+        results.append(
+            check_c30d_readonly(
+                args.c30d_port,
+                args.duration,
+                warmup_duration_s=args.c30d_warmup_duration,
+            )
+        )
     if args.check_rplidar:
         results.append(check_path_exists("device:/dev/rplidar", Path(args.rplidar_port)))
         results.append(check_rplidar_capture(args.rplidar_port, args.duration))
