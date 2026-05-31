@@ -242,6 +242,80 @@ def test_tiny_forward_pulse_refuses_target_x_above_limit(capsys):
     assert fake_serial.write_calls == []
 
 
+def test_tiny_forward_pulse_rejects_extended_duration_without_explicit_stream_flag(capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+
+    exit_code = module.main(
+        ["--duration", "0.50"],
+        serial_factory=lambda _port, _baud: fake_serial,
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "duration_exceeds_0.15_limit" in output
+    assert fake_serial.write_calls == []
+
+
+def test_tiny_forward_pulse_rejects_extended_duration_without_stream_mode(capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+
+    exit_code = module.main(
+        ["--allow-extended-low-speed-stream", "--duration", "0.50"],
+        serial_factory=lambda _port, _baud: fake_serial,
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "duration_exceeds_0.15_limit" in output
+    assert fake_serial.write_calls == []
+
+
+def test_tiny_forward_pulse_accepts_extended_duration_only_with_stream_mode_and_flag(capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+
+    exit_code = module.main(
+        [
+            "--stream-mode",
+            "--allow-extended-low-speed-stream",
+            "--duration",
+            "0.50",
+        ],
+        serial_factory=lambda _port, _baud: fake_serial,
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "allow_extended_low_speed_stream: true" in output
+    assert "extended_duration_limit_s: 0.5" in output
+    assert "stream_mode: true" in output
+    assert "pulse_stream_duration_s: 0.5" in output
+    assert "dry_run: true" in output
+    assert fake_serial.write_calls == []
+
+
+def test_tiny_forward_pulse_rejects_duration_above_extended_limit(capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+
+    exit_code = module.main(
+        [
+            "--stream-mode",
+            "--allow-extended-low-speed-stream",
+            "--duration",
+            "0.501",
+        ],
+        serial_factory=lambda _port, _baud: fake_serial,
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "duration_exceeds_0.50_extended_stream_limit" in output
+    assert fake_serial.write_calls == []
+
+
 def test_tiny_forward_pulse_refuses_duration_above_limit(capsys):
     module = load_pulse_script()
     fake_serial = FakeSerial()

@@ -202,8 +202,10 @@ and writing is allowed only after the counted window has readiness allowed, zero
 C30D checksum frames, and battery above the warning threshold. The script builds only
 native host command frames using target Y and target Z fixed at zero. Defaults are
 `--target-x 0.03` and `--duration 0.10`; hard limits reject `abs(target_x) > 0.05` or
-duration above `0.15` seconds. `--stream-mode` keeps the same target and duration limits
-and adds `--stream-rate-hz` with a hard maximum of `50`. The safe zero/stop frame is
+duration above `0.15` seconds. `--stream-mode` keeps the same target limit and adds
+`--stream-rate-hz` with a hard maximum of `50`. `--allow-extended-low-speed-stream` is
+ignored unless `--stream-mode` is also set; when both are set, target X remains limited
+to `0.05` and duration may be at most `0.50` seconds. The safe zero/stop frame is
 always the physically tested `7b 00 00 00 00 00 00 00 00 7b 7d`; reserved/control-byte
 experiments apply only to the pulse frame. The non-stream real sequence is fixed: safe
 zero frame, 0.05 second pause, pulse frame, pulse duration pause, safe zero frame, 0.05
@@ -214,7 +216,7 @@ During the same serial session it logs C30D feedback before, during, and after t
 when `--feedback-output` is provided. The CSV includes monotonic timestamp, phase,
 forward/yaw candidates, candidate battery, checksum validity, and raw frame hex. The
 script prints `pulse_reserved_1`, `pulse_reserved_2`, `safe_zero_frame_hex`,
-`pulse_frame_hex`, stream mode/rate/durations, frames written by phase, baseline vs
+`pulse_frame_hex`, `allow_extended_low_speed_stream`, stream mode/rate/durations, frames written by phase, baseline vs
 pulse/post forward-candidate maxima, max yaw candidate, invalid checksum count, and
 whether movement feedback was detected. It accepts
 `--reserved-1` and `--reserved-2` only as `0x00` or `0x01` for the pulse-frame-only

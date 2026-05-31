@@ -25,6 +25,7 @@ DEFAULT_TARGET_X = 0.03
 MAX_ABS_TARGET_X = 0.05
 DEFAULT_PULSE_DURATION_S = 0.10
 MAX_PULSE_DURATION_S = 0.15
+MAX_EXTENDED_LOW_SPEED_STREAM_DURATION_S = 0.50
 DEFAULT_STREAM_RATE_HZ = 20.0
 MAX_STREAM_RATE_HZ = 50.0
 ZERO_STREAM_DURATION_S = 0.20
@@ -138,6 +139,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--duration", type=float, default=DEFAULT_PULSE_DURATION_S)
     parser.add_argument("--stream-mode", action="store_true")
     parser.add_argument("--stream-rate-hz", type=float, default=DEFAULT_STREAM_RATE_HZ)
+    parser.add_argument("--allow-extended-low-speed-stream", action="store_true")
     parser.add_argument(
         "--reserved-1", type=parse_reserved_control_byte, default=DEFAULT_RESERVED_1
     )
@@ -243,6 +245,7 @@ def validate_limits(
     target_x: float,
     duration_s: float,
     stream_rate_hz: float = DEFAULT_STREAM_RATE_HZ,
+    max_duration_s: float = MAX_PULSE_DURATION_S,
 ) -> tuple[str, ...]:
     reasons: list[str] = []
     if target_x <= 0.0:
@@ -251,8 +254,11 @@ def validate_limits(
         reasons.append("target_x_exceeds_0.05_limit")
     if duration_s <= 0.0:
         reasons.append("duration_must_be_positive")
-    if duration_s > MAX_PULSE_DURATION_S:
-        reasons.append("duration_exceeds_0.15_limit")
+    if duration_s > max_duration_s:
+        if max_duration_s == MAX_EXTENDED_LOW_SPEED_STREAM_DURATION_S:
+            reasons.append("duration_exceeds_0.50_extended_stream_limit")
+        else:
+            reasons.append("duration_exceeds_0.15_limit")
     if stream_rate_hz <= 0.0:
         reasons.append("stream_rate_hz_must_be_positive")
     if stream_rate_hz > MAX_STREAM_RATE_HZ:
@@ -265,13 +271,14 @@ def build_pulse_frames(
     duration_s: float,
     reserved_1: int = DEFAULT_RESERVED_1,
     reserved_2: int = DEFAULT_RESERVED_2,
+    max_duration_s: float = MAX_PULSE_DURATION_S,
 ) -> PulseFrames:
     from ackermann_robot.drivers.c30d_host_command_frame import (
         build_ackermann_host_command_frame,
         scale_documentation_candidate,
     )
 
-    limit_reasons = validate_limits(target_x, duration_s)
+    limit_reasons = validate_limits(target_x, duration_s, max_duration_s=max_duration_s)
     if limit_reasons:
         raise ValueError(", ".join(limit_reasons))
     if reserved_1 not in (0x00, 0x01):
@@ -816,7 +823,16 @@ def write_stream_pulse_sequence(
     )
 
 
-def print_stream_plan(*, stream_mode: bool, stream_rate_hz: float, pulse_duration_s: float) -> None:
+def print_stream_plan(
+    *,
+    stream_mode: bool,
+    stream_rate_hz: float,
+    pulse_duration_s: float,
+    allow_extended_low_speed_stream: bool,
+    extended_duration_limit_s: float,
+) -> None:
+    print(f"allow_extended_low_speed_stream: {str(allow_extended_low_speed_stream).lower()}")
+    print(f"extended_duration_limit_s: {extended_duration_limit_s:g}")
     print(f"stream_mode: {str(stream_mode).lower()}")
     print(f"stream_rate_hz: {stream_rate_hz:g}")
     print(f"zero_stream_duration_s: {ZERO_STREAM_DURATION_S:g}")
@@ -870,8 +886,19 @@ def main(
     clock: Callable[[], float] = time.monotonic,
 ) -> int:
     args = build_parser().parse_args(argv)
+    extended_low_speed_stream = bool(args.stream_mode and args.allow_extended_low_speed_stream)
+    duration_limit_s = (
+        MAX_EXTENDED_LOW_SPEED_STREAM_DURATION_S
+        if extended_low_speed_stream
+        else MAX_PULSE_DURATION_S
+    )
     try:
-        limit_reasons = validate_limits(args.target_x, args.duration, args.stream_rate_hz)
+        limit_reasons = validate_limits(
+            args.target_x,
+            args.duration,
+            args.stream_rate_hz,
+            max_duration_s=duration_limit_s,
+        )
         if limit_reasons:
             raise ValueError(", ".join(limit_reasons))
         frames = build_pulse_frames(
@@ -879,6 +906,7 @@ def main(
             args.duration,
             reserved_1=args.reserved_1,
             reserved_2=args.reserved_2,
+            max_duration_s=duration_limit_s,
         )
     except ValueError as exc:
         print(f"refused: {exc}")
@@ -890,6 +918,8 @@ def main(
         stream_mode=args.stream_mode,
         stream_rate_hz=args.stream_rate_hz,
         pulse_duration_s=frames.pulse_duration_s,
+        allow_extended_low_speed_stream=args.allow_extended_low_speed_stream,
+        extended_duration_limit_s=duration_limit_s,
     )
     print(f"pulse_target_x: {frames.pulse_target_x:g}")
     print(f"pulse_duration_s: {frames.pulse_duration_s:g}")
