@@ -194,8 +194,11 @@ Execute one extremely constrained native tiny forward pulse sequence:
 
 Strong warning: this is the first possible motor movement script. Default behavior is
 dry-run only and writes no bytes. A real pulse requires every listed guard flag and the
-same first-write readiness gate before opening `/dev/c30d`. The script builds only native
-host command frames using target Y and target Z fixed at zero. Defaults are
+same first-write readiness gate before opening `/dev/c30d`. For real pulses,
+`--readiness-retries` defaults to `1` and `--retry-delay` defaults to `1.0`; each attempt
+is still read-only, and writing is allowed only after an attempt has readiness allowed,
+zero invalid C30D checksum frames, and battery above the warning threshold. The
+script builds only native host command frames using target Y and target Z fixed at zero. Defaults are
 `--target-x 0.03` and `--duration 0.10`; hard limits reject `abs(target_x) > 0.05` or
 duration above `0.15` seconds. The safe zero/stop frame is always the physically tested
 `7b 00 00 00 00 00 00 00 00 7b 7d`; reserved/control-byte experiments apply only to

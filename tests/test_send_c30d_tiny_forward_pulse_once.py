@@ -39,8 +39,17 @@ def all_real_pulse_args() -> list[str]:
 
 
 @dataclass(frozen=True)
+class FakePreflight:
+    invalid_checksum_count: int | None = 0
+    candidate_battery_mV: float | int | None = 12000
+
+
+@dataclass(frozen=True)
 class FakeReadinessReport:
     readiness_allowed: bool
+    preflight: FakePreflight = FakePreflight()
+    warning_battery_mV: int = 10800
+    reasons: tuple[str, ...] = ()
 
 
 class FakeSerial:
@@ -245,7 +254,93 @@ def test_tiny_forward_pulse_refuses_when_readiness_false(monkeypatch, capsys):
 
     output = capsys.readouterr().out
     assert exit_code == 1
-    assert "refused: readiness_allowed_false" in output
+    assert "readiness_attempt: 1" in output
+    assert "readiness_attempt_allowed: false" in output
+    assert "refused: readiness_attempts_exhausted" in output
+    assert "real_write_performed: false" in output
+    assert "bytes_written_total: 0" in output
+    assert fake_serial.write_calls == []
+
+
+def test_tiny_forward_pulse_retries_readiness_then_writes_on_clean_attempt(monkeypatch, capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+    clock = StepClock()
+    reports = [
+        FakeReadinessReport(
+            readiness_allowed=False,
+            preflight=FakePreflight(invalid_checksum_count=1, candidate_battery_mV=12000),
+            reasons=("invalid_c30d_checksum_frames_observed",),
+        ),
+        FakeReadinessReport(readiness_allowed=True),
+    ]
+    readiness_calls = []
+
+    def fake_readiness(_args):
+        readiness_calls.append("called")
+        return reports.pop(0)
+
+    monkeypatch.setattr(module, "run_internal_readiness", fake_readiness)
+
+    exit_code = module.main(
+        [*all_real_pulse_args(), "--readiness-retries", "2", "--retry-delay", "0.25"],
+        serial_factory=lambda _port, _baud: fake_serial,
+        sleep_fn=clock.sleep,
+        clock=clock,
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert len(readiness_calls) == 2
+    assert "readiness_attempt: 1" in output
+    assert "readiness_attempt_invalid_checksum_count: 1" in output
+    assert "readiness_attempt_write_allowed: false" in output
+    assert "readiness_retry_delay_s: 0.25" in output
+    assert "readiness_attempt: 2" in output
+    assert "readiness_attempt_invalid_checksum_count: 0" in output
+    assert "readiness_attempt_write_allowed: true" in output
+    assert len(fake_serial.write_calls) == 4
+
+
+def test_tiny_forward_pulse_refuses_after_all_readiness_retries_fail(monkeypatch, capsys):
+    module = load_pulse_script()
+    fake_serial = FakeSerial()
+    reports = [
+        FakeReadinessReport(
+            readiness_allowed=False,
+            preflight=FakePreflight(invalid_checksum_count=1, candidate_battery_mV=12000),
+            reasons=("invalid_c30d_checksum_frames_observed",),
+        ),
+        FakeReadinessReport(
+            readiness_allowed=False,
+            preflight=FakePreflight(invalid_checksum_count=0, candidate_battery_mV=10799),
+            reasons=("candidate_battery_below_warning_threshold",),
+        ),
+    ]
+    readiness_calls = []
+
+    def fake_readiness(_args):
+        readiness_calls.append("called")
+        return reports.pop(0)
+
+    monkeypatch.setattr(module, "run_internal_readiness", fake_readiness)
+
+    exit_code = module.main(
+        [*all_real_pulse_args(), "--readiness-retries", "2", "--retry-delay", "0"],
+        serial_factory=lambda _port, _baud: fake_serial,
+        sleep_fn=lambda _seconds: None,
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert len(readiness_calls) == 2
+    assert "readiness_attempt: 1" in output
+    assert "readiness_attempt_invalid_checksum_count: 1" in output
+    assert "readiness_attempt_reasons: invalid_c30d_checksum_frames_observed" in output
+    assert "readiness_attempt: 2" in output
+    assert "readiness_attempt_battery_candidate_mV: 10799" in output
+    assert "readiness_attempt_reasons: candidate_battery_below_warning_threshold" in output
+    assert "refused: readiness_attempts_exhausted" in output
     assert "real_write_performed: false" in output
     assert "bytes_written_total: 0" in output
     assert fake_serial.write_calls == []

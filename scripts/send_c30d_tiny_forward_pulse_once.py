@@ -23,6 +23,8 @@ DEFAULT_TARGET_X = 0.03
 MAX_ABS_TARGET_X = 0.05
 DEFAULT_PULSE_DURATION_S = 0.10
 MAX_PULSE_DURATION_S = 0.15
+DEFAULT_READINESS_RETRIES = 1
+DEFAULT_RETRY_DELAY_S = 1.0
 DEFAULT_RESERVED_1 = 0x00
 DEFAULT_RESERVED_2 = 0x00
 ZERO_SETTLE_S = 0.05
@@ -100,6 +102,18 @@ class PulseWriteResult:
     feedback_summary: FeedbackSummary
 
 
+@dataclass(frozen=True)
+class ReadinessAttemptSummary:
+    attempt: int
+    readiness_allowed: bool
+    invalid_checksum_count: int | None
+    battery_candidate_mV: float | int | None
+    battery_warning_threshold_mV: int | None
+    write_allowed: bool
+    reasons: tuple[str, ...]
+    error: str | None = None
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -133,6 +147,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--preflight-duration", type=float, default=DEFAULT_PREFLIGHT_DURATION_S)
     parser.add_argument(
+        "--readiness-retries",
+        type=parse_readiness_retries,
+        default=DEFAULT_READINESS_RETRIES,
+        help="Maximum read-only readiness attempts before a real pulse write is refused.",
+    )
+    parser.add_argument(
+        "--retry-delay",
+        type=parse_retry_delay,
+        default=DEFAULT_RETRY_DELAY_S,
+        help="Seconds to wait between failed readiness attempts.",
+    )
+    parser.add_argument(
         "--c30d-only-preflight",
         dest="preflight_mode",
         action="store_const",
@@ -157,6 +183,26 @@ def parse_reserved_control_byte(value: str) -> int:
         raise argparse.ArgumentTypeError("reserved byte must be 0x00 or 0x01") from exc
     if parsed not in (0x00, 0x01):
         raise argparse.ArgumentTypeError("reserved byte must be 0x00 or 0x01")
+    return parsed
+
+
+def parse_readiness_retries(value: str) -> int:
+    try:
+        parsed = int(value, 0)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("readiness_retries must be at least 1") from exc
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("readiness_retries must be at least 1")
+    return parsed
+
+
+def parse_retry_delay(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("retry_delay must be nonnegative") from exc
+    if parsed < 0.0:
+        raise argparse.ArgumentTypeError("retry_delay must be nonnegative")
     return parsed
 
 
@@ -279,6 +325,87 @@ def run_internal_readiness(args: argparse.Namespace):
     report = readiness.evaluate_readiness(confirmations, preflight, threshold)
     readiness.print_report(report)
     return report
+
+
+def readiness_report_allows_write(report) -> bool:
+    preflight = report.preflight
+    return (
+        bool(report.readiness_allowed)
+        and preflight.invalid_checksum_count == 0
+        and preflight.candidate_battery_mV is not None
+        and preflight.candidate_battery_mV > report.warning_battery_mV
+    )
+
+
+def summarize_readiness_attempt(
+    attempt: int,
+    report=None,
+    error: str | None = None,
+) -> ReadinessAttemptSummary:
+    if report is None:
+        return ReadinessAttemptSummary(
+            attempt=attempt,
+            readiness_allowed=False,
+            invalid_checksum_count=None,
+            battery_candidate_mV=None,
+            battery_warning_threshold_mV=None,
+            write_allowed=False,
+            reasons=("readiness_attempt_error",),
+            error=error,
+        )
+
+    preflight = report.preflight
+    reasons = tuple(getattr(report, "reasons", ()))
+    return ReadinessAttemptSummary(
+        attempt=attempt,
+        readiness_allowed=bool(report.readiness_allowed),
+        invalid_checksum_count=preflight.invalid_checksum_count,
+        battery_candidate_mV=preflight.candidate_battery_mV,
+        battery_warning_threshold_mV=report.warning_battery_mV,
+        write_allowed=readiness_report_allows_write(report),
+        reasons=reasons,
+    )
+
+
+def print_readiness_attempt_summary(summary: ReadinessAttemptSummary) -> None:
+    print(f"readiness_attempt: {summary.attempt}")
+    print(f"readiness_attempt_allowed: {str(summary.readiness_allowed).lower()}")
+    print(f"readiness_attempt_invalid_checksum_count: {summary.invalid_checksum_count}")
+    print(f"readiness_attempt_battery_candidate_mV: {summary.battery_candidate_mV}")
+    print(f"readiness_attempt_battery_warning_threshold_mV: {summary.battery_warning_threshold_mV}")
+    print(f"readiness_attempt_write_allowed: {str(summary.write_allowed).lower()}")
+    print(
+        "readiness_attempt_reasons: " f"{', '.join(summary.reasons) if summary.reasons else 'ok'}"
+    )
+    if summary.error is not None:
+        print(f"readiness_attempt_error: {summary.error}")
+
+
+def run_readiness_with_retries(
+    args: argparse.Namespace,
+    *,
+    sleep_fn: SleepFn = time.sleep,
+):
+    summaries: list[ReadinessAttemptSummary] = []
+    for attempt in range(1, args.readiness_retries + 1):
+        try:
+            report = run_internal_readiness(args)
+        except RuntimeError as exc:
+            summary = summarize_readiness_attempt(attempt, error=str(exc))
+            summaries.append(summary)
+            print_readiness_attempt_summary(summary)
+        else:
+            summary = summarize_readiness_attempt(attempt, report=report)
+            summaries.append(summary)
+            print_readiness_attempt_summary(summary)
+            if summary.write_allowed:
+                return report, summaries
+
+        if attempt < args.readiness_retries:
+            print(f"readiness_retry_delay_s: {args.retry_delay:g}")
+            sleep_fn(args.retry_delay)
+
+    return None, summaries
 
 
 def open_serial_handle(port: str, baud: int) -> SerialHandle:
@@ -578,16 +705,9 @@ def main(
         print("bytes_written_total: 0")
         return 1
 
-    try:
-        readiness_report = run_internal_readiness(args)
-    except RuntimeError as exc:
-        print(str(exc), file=sys.stderr)
-        print("real_write_performed: false")
-        print("bytes_written_total: 0")
-        return 2
-
-    if not readiness_report.readiness_allowed:
-        print("refused: readiness_allowed_false")
+    readiness_report, _attempt_summaries = run_readiness_with_retries(args, sleep_fn=sleep_fn)
+    if readiness_report is None:
+        print("refused: readiness_attempts_exhausted")
         print("real_write_performed: false")
         print("bytes_written_total: 0")
         return 1
