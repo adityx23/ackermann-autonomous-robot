@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +30,11 @@ INSPECTED_DIRS = (
 )
 REPORT_ROOT = Path("data/c30d_diagnostics")
 ZERO_NEUTRAL_FRAME_HEX = "7b 00 00 00 00 00 00 00 00 7b 7d"
+USER_MODE_BYTE_INDEX = 1
+USER_MODE_ACTIVE_VALUE = 0x01
+USER_MODE_MIN_ACTIVE_RATIO = 0.80
+BYTE_DISTRIBUTION_POSITIONS = (1, 8, 21)
+USER_MODE_MOTION_PROBE_NAMES = ("user_mode_stream_x_0_05", "user_mode_angular_z_0_05")
 KNOWN_TEST_FACTS = (
     "zero frame: safe",
     "target_x=0.05 single pulse: no movement",
@@ -67,6 +73,25 @@ class ByteDifference:
 
 
 @dataclass(frozen=True)
+class CommandProbeResult:
+    name: str
+    performed: bool
+    movement_detected: bool = False
+    feedback_output: Path | None = None
+    notes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class UserModeEvidence:
+    detected: bool
+    reason: str
+    byte1_before: tuple[int, ...] = ()
+    byte1_after: tuple[int, ...] = ()
+    byte8_before: tuple[int, ...] = ()
+    byte8_after: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
 class CaptureSummary:
     path: Path
     kind: str
@@ -81,6 +106,8 @@ class CaptureSummary:
     frame_rate_hz: float | None = None
     changing_byte_positions: tuple[int, ...] = ()
     status_byte_values: tuple[int, ...] = ()
+    stable_byte_values: tuple[tuple[int, int], ...] = ()
+    byte_value_distributions: tuple[tuple[int, tuple[tuple[int, int], ...]], ...] = ()
     phases: tuple[str, ...] = ()
     apparent_write_effect: bool = False
     notes: tuple[str, ...] = ()
@@ -108,6 +135,11 @@ class DiagnosisState:
     conclusion: str = ""
     recommended_next_step: str = ""
     live_captures_required: bool = False
+    user_mode_evidence: UserModeEvidence = field(
+        default_factory=lambda: UserModeEvidence(False, "not_evaluated")
+    )
+    user_mode_byte1_active_before_probes: bool | None = None
+    user_mode_command_probes: list[CommandProbeResult] = field(default_factory=list)
     decision_trace: list[str] = field(default_factory=list)
 
 
@@ -121,6 +153,7 @@ def build_parser() -> argparse.ArgumentParser:
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--offline-only", action="store_true")
     modes.add_argument("--guided-live", action="store_true")
+    modes.add_argument("--guided-user-mode-probe", action="store_true")
     modes.add_argument("--continue-until-exhausted", action="store_true")
     parser.add_argument("--port", default=DEFAULT_PORT)
     parser.add_argument("--baud", type=int, default=DEFAULT_BAUD)
@@ -174,6 +207,59 @@ def _candidate_float(row: dict[str, str], *names: str) -> float | None:
     return None
 
 
+def byte_value_distribution(
+    frames: Iterable[bytes],
+    position: int,
+) -> tuple[tuple[int, int], ...]:
+    counts = Counter(frame[position] for frame in frames if position < len(frame))
+    return tuple(sorted(counts.items()))
+
+
+def byte_distribution_map(
+    frames: Iterable[bytes],
+    positions: Iterable[int] = BYTE_DISTRIBUTION_POSITIONS,
+) -> tuple[tuple[int, tuple[tuple[int, int], ...]], ...]:
+    frame_list = list(frames)
+    return tuple(
+        (position, byte_value_distribution(frame_list, position)) for position in positions
+    )
+
+
+def stable_byte_values(frames: Iterable[bytes]) -> tuple[tuple[int, int], ...]:
+    frame_list = list(frames)
+    if not frame_list:
+        return ()
+    shortest = min(len(frame) for frame in frame_list)
+    stable: list[tuple[int, int]] = []
+    for position in range(shortest):
+        values = {frame[position] for frame in frame_list}
+        if len(values) == 1:
+            stable.append((position, values.pop()))
+    return tuple(stable)
+
+
+def distribution_values(distribution: tuple[tuple[int, int], ...]) -> tuple[int, ...]:
+    return tuple(value for value, _count in distribution)
+
+
+def distribution_ratio(distribution: tuple[tuple[int, int], ...], value: int) -> float:
+    total = sum(count for _value, count in distribution)
+    if total == 0:
+        return 0.0
+    matching = sum(count for observed, count in distribution if observed == value)
+    return matching / total
+
+
+def capture_byte_distribution(
+    summary: CaptureSummary,
+    position: int,
+) -> tuple[tuple[int, int], ...]:
+    for candidate_position, distribution in summary.byte_value_distributions:
+        if candidate_position == position:
+            return distribution
+    return ()
+
+
 def analyze_binary_capture(path: Path) -> CaptureSummary:
     from ackermann_robot.drivers.c30d_feedback import parse_feedback_candidates
     from ackermann_robot.drivers.c30d_frames import (
@@ -202,6 +288,8 @@ def analyze_binary_capture(path: Path) -> CaptureSummary:
         battery_max_mV=max(batteries, default=None),
         changing_byte_positions=tuple(changing_byte_positions(valid_frames or frames)),
         status_byte_values=tuple(status_values),
+        stable_byte_values=stable_byte_values(valid_frames or frames),
+        byte_value_distributions=byte_distribution_map(valid_frames or frames),
     )
 
 
@@ -376,6 +464,55 @@ def compare_capture_groups(label_to_frames: dict[str, list[bytes]]) -> list[Stat
     return comparisons
 
 
+def detect_user_mode_evidence(comparisons: Iterable[StateComparison]) -> UserModeEvidence:
+    for comparison in comparisons:
+        if "user_button_pressed_released" not in {comparison.left_label, comparison.right_label}:
+            continue
+        for diff in comparison.byte_differences:
+            if diff.position != USER_MODE_BYTE_INDEX:
+                continue
+            if comparison.right_label == "user_button_pressed_released":
+                before = diff.left_values
+                after = diff.right_values
+            else:
+                before = diff.right_values
+                after = diff.left_values
+            byte8_before: tuple[int, ...] = ()
+            byte8_after: tuple[int, ...] = ()
+            for byte8_diff in comparison.byte_differences:
+                if byte8_diff.position == 8:
+                    if comparison.right_label == "user_button_pressed_released":
+                        byte8_before = byte8_diff.left_values
+                        byte8_after = byte8_diff.right_values
+                    else:
+                        byte8_before = byte8_diff.right_values
+                        byte8_after = byte8_diff.left_values
+            if before == (0x00,) and after == (USER_MODE_ACTIVE_VALUE,):
+                return UserModeEvidence(
+                    True,
+                    "candidate_user_mode_byte",
+                    byte1_before=before,
+                    byte1_after=after,
+                    byte8_before=byte8_before,
+                    byte8_after=byte8_after,
+                )
+    return UserModeEvidence(False, "no_user_byte1_00_to_01_transition")
+
+
+def user_mode_probe_has_run(state: DiagnosisState) -> bool:
+    return any(
+        probe.name in USER_MODE_MOTION_PROBE_NAMES for probe in state.user_mode_command_probes
+    )
+
+
+def user_mode_probes_failed(state: DiagnosisState) -> bool:
+    by_name = {probe.name: probe for probe in state.user_mode_command_probes}
+    return all(
+        name in by_name and by_name[name].performed and not by_name[name].movement_detected
+        for name in USER_MODE_MOTION_PROBE_NAMES
+    )
+
+
 def run_offline_analysis(report_dir: Path) -> DiagnosisState:
     from ackermann_robot.drivers.c30d_frames import extract_frames, filter_frames_by_checksum
 
@@ -410,6 +547,11 @@ def run_offline_analysis(report_dir: Path) -> DiagnosisState:
             if frames:
                 label_to_frames[summary.path.stem] = frames
     state.comparisons.extend(compare_capture_groups(label_to_frames))
+    state.user_mode_evidence = detect_user_mode_evidence(state.comparisons)
+    if state.user_mode_evidence.detected:
+        state.confirmed_facts.append(
+            "USER press changes byte 1 from 0x00 to 0x01; byte 1 is candidate_user_mode_byte."
+        )
 
     total_frames = sum(summary.frame_count for summary in state.captures)
     total_invalid = sum(summary.invalid_checksum_count for summary in state.captures)
@@ -448,6 +590,10 @@ def choose_recommendation(state: DiagnosisState) -> str:
         return "continue C30D protocol work: collect guided-live state captures first"
     if any(summary.apparent_write_effect for summary in state.captures):
         return "continue C30D protocol work: analyze the active feedback-changing write path"
+    if state.user_mode_evidence.detected:
+        if user_mode_probes_failed(state):
+            return "bypass C30D actuation using separate MCU/motor drivers"
+        return "run guided USER-mode probe"
     if any(summary.invalid_checksum_count for summary in state.captures):
         return (
             "investigate firmware/download port read-only or feedback integrity before live writes"
@@ -535,13 +681,14 @@ def write_zero_frame_after_confirmation(
     baud: int,
     input_fn: Callable[[str], str] = input,
     serial_factory: SerialFactory = open_serial_handle,
+    readiness_fn: Callable[[], object] = run_readiness_for_live_zero,
 ) -> bool:
     from send_c30d_zero_frame_once import build_zero_frame, validate_zero_frame
 
     if not require_live_safety_confirmation(input_fn=input_fn):
         print("zero_frame_write: refused_by_user_confirmation")
         return False
-    report = run_readiness_for_live_zero()
+    report = readiness_fn()
     preflight = report.preflight
     if (
         not report.readiness_allowed
@@ -637,6 +784,11 @@ def run_guided_live(
         if frames:
             label_to_frames[path.stem] = frames
     state.comparisons.extend(compare_capture_groups(label_to_frames))
+    state.user_mode_evidence = detect_user_mode_evidence(state.comparisons)
+    if state.user_mode_evidence.detected:
+        state.confirmed_facts.append(
+            "USER press changes byte 1 from 0x00 to 0x01; byte 1 is candidate_user_mode_byte."
+        )
     state.conclusion = (
         f"Guided-live collected {len(state.captures_collected)} passive capture files."
     )
@@ -649,9 +801,226 @@ def all_branches_exhausted(state: DiagnosisState) -> bool:
         return False
     if any(summary.apparent_write_effect for summary in state.captures):
         return False
+    if state.user_mode_evidence.detected and not user_mode_probe_has_run(state):
+        return False
+    if state.user_mode_evidence.detected and user_mode_probes_failed(state):
+        return True
     if any(comparison.byte_differences for comparison in state.comparisons):
         return False
     return True
+
+
+def byte1_user_mode_active(summary: CaptureSummary) -> bool:
+    distribution = capture_byte_distribution(summary, USER_MODE_BYTE_INDEX)
+    return distribution_ratio(distribution, USER_MODE_ACTIVE_VALUE) >= USER_MODE_MIN_ACTIVE_RATIO
+
+
+def run_user_mode_zero_probe(
+    state: DiagnosisState,
+    capture_dir: Path,
+    *,
+    port: str,
+    baud: int,
+    capture_duration_s: float,
+    input_fn: Callable[[str], str],
+    serial_factory: SerialFactory,
+) -> None:
+    if not require_typed_yes("USER-mode zero-frame probe requires explicit approval.", input_fn):
+        state.user_mode_command_probes.append(
+            CommandProbeResult("user_mode_zero_frame", performed=False, notes=("refused_by_user",))
+        )
+        return
+    sent = write_zero_frame_after_confirmation(
+        port=port,
+        baud=baud,
+        input_fn=input_fn,
+        serial_factory=serial_factory,
+    )
+    if not sent:
+        state.user_mode_command_probes.append(
+            CommandProbeResult(
+                "user_mode_zero_frame", performed=False, notes=("zero_frame_refused",)
+            )
+        )
+        return
+    path = capture_passive_feedback(
+        "after_user_mode_zero_frame",
+        capture_dir,
+        port=port,
+        baud=baud,
+        duration_s=capture_duration_s,
+        serial_factory=serial_factory,
+    )
+    state.captures_collected.append(path)
+    state.captures.append(analyze_binary_capture(path))
+    state.user_mode_command_probes.append(
+        CommandProbeResult("user_mode_zero_frame", performed=True, movement_detected=False)
+    )
+
+
+def run_tiny_pulse_script_probe(
+    *,
+    name: str,
+    feedback_output: Path,
+    port: str,
+    baud: int,
+    angular_z_probe: bool = False,
+    serial_factory: SerialFactory = open_serial_handle,
+) -> CommandProbeResult:
+    import send_c30d_tiny_forward_pulse_once as pulse
+
+    argv = [
+        "--port",
+        port,
+        "--baud",
+        str(baud),
+        "--stream-mode",
+        "--duration",
+        "0.25",
+        "--reserved-1",
+        "0x00",
+        "--reserved-2",
+        "0x00",
+        "--feedback-output",
+        str(feedback_output),
+        "--armed",
+        "--manual-enable",
+        "--wheels-lifted",
+        "--robot-restrained",
+        "--manual-power-cutoff-ready",
+        "--motor-enable-switch-reviewed",
+        "--i-understand-this-may-spin-the-wheels",
+        "--execute-real-pulse",
+    ]
+    if angular_z_probe:
+        argv.extend(["--angular-z-probe", "--target-z", "0.05"])
+    else:
+        argv.extend(["--target-x", "0.05", "--allow-extended-low-speed-stream"])
+    result_code = pulse.main(argv, serial_factory=serial_factory)
+    if result_code != 0:
+        return CommandProbeResult(
+            name,
+            performed=False,
+            feedback_output=feedback_output,
+            notes=(f"exit_code_{result_code}",),
+        )
+    summary = analyze_csv_capture(feedback_output) if feedback_output.exists() else None
+    return CommandProbeResult(
+        name,
+        performed=True,
+        movement_detected=bool(summary and summary.apparent_write_effect),
+        feedback_output=feedback_output,
+    )
+
+
+def run_user_mode_motion_probe_if_confirmed(
+    *,
+    state: DiagnosisState,
+    name: str,
+    prompt: str,
+    feedback_output: Path,
+    port: str,
+    baud: int,
+    input_fn: Callable[[str], str],
+    serial_factory: SerialFactory,
+    angular_z_probe: bool = False,
+) -> CommandProbeResult:
+    if not require_typed_yes(prompt, input_fn=input_fn):
+        result = CommandProbeResult(name, performed=False, notes=("refused_by_user",))
+        state.user_mode_command_probes.append(result)
+        return result
+    if not require_live_safety_confirmation(input_fn=input_fn):
+        result = CommandProbeResult(name, performed=False, notes=("safety_confirmation_failed",))
+        state.user_mode_command_probes.append(result)
+        return result
+    result = run_tiny_pulse_script_probe(
+        name=name,
+        feedback_output=feedback_output,
+        port=port,
+        baud=baud,
+        angular_z_probe=angular_z_probe,
+        serial_factory=serial_factory,
+    )
+    state.user_mode_command_probes.append(result)
+    if result.feedback_output is not None and result.feedback_output.exists():
+        state.captures_collected.append(result.feedback_output)
+        state.captures.append(analyze_csv_capture(result.feedback_output))
+    return result
+
+
+def run_guided_user_mode_probe(
+    report_dir: Path,
+    *,
+    port: str,
+    baud: int,
+    capture_duration_s: float,
+    input_fn: Callable[[str], str] = input,
+    serial_factory: SerialFactory = open_serial_handle,
+) -> DiagnosisState:
+    state = DiagnosisState(report_dir=report_dir)
+    state.commands_run.append(
+        "python scripts/c30d_autonomous_diagnosis_runner.py --guided-user-mode-probe"
+    )
+    capture_dir = report_dir / "captures"
+    prompt_enter("Set motor switch ON.", input_fn=input_fn)
+    prompt_enter("Press and release USER once.", input_fn=input_fn)
+    before_path = capture_passive_feedback(
+        "user_mode_before_probes",
+        capture_dir,
+        port=port,
+        baud=baud,
+        duration_s=capture_duration_s,
+        serial_factory=serial_factory,
+    )
+    state.captures_collected.append(before_path)
+    before_summary = analyze_binary_capture(before_path)
+    state.captures.append(before_summary)
+    state.user_mode_byte1_active_before_probes = byte1_user_mode_active(before_summary)
+    if not state.user_mode_byte1_active_before_probes:
+        state.conclusion = "Refused USER-mode live probes because byte 1 was not mostly 0x01."
+        state.recommended_next_step = "continue C30D protocol work: confirm USER mode byte 1"
+        return state
+
+    run_user_mode_zero_probe(
+        state,
+        capture_dir,
+        port=port,
+        baud=baud,
+        capture_duration_s=capture_duration_s,
+        input_fn=input_fn,
+        serial_factory=serial_factory,
+    )
+    stream_result = run_user_mode_motion_probe_if_confirmed(
+        state=state,
+        name="user_mode_stream_x_0_05",
+        prompt="Run USER-mode stream probe target_x=0.05 duration=0.25?",
+        feedback_output=capture_dir / "user_mode_stream_x_0_05_feedback.csv",
+        port=port,
+        baud=baud,
+        input_fn=input_fn,
+        serial_factory=serial_factory,
+    )
+    if stream_result.performed and not stream_result.movement_detected:
+        run_user_mode_motion_probe_if_confirmed(
+            state=state,
+            name="user_mode_angular_z_0_05",
+            prompt="No motion detected. Run USER-mode angular_z probe target_z=0.05 duration=0.25?",
+            feedback_output=capture_dir / "user_mode_angular_z_0_05_feedback.csv",
+            port=port,
+            baud=baud,
+            input_fn=input_fn,
+            serial_factory=serial_factory,
+            angular_z_probe=True,
+        )
+
+    any_motion = any(probe.movement_detected for probe in state.user_mode_command_probes)
+    state.conclusion = (
+        "USER-mode probe detected movement feedback."
+        if any_motion
+        else "USER-mode probes completed without movement feedback."
+    )
+    state.recommended_next_step = choose_recommendation(state)
+    return state
 
 
 def run_continue_until_exhausted(
@@ -703,6 +1072,11 @@ def run_continue_until_exhausted(
             "D. low-risk live write re-test: evidence supports protocol work, but no automatic probe run."
         )
         state.recommended_next_step = "continue C30D protocol work"
+    elif state.user_mode_evidence.detected and not user_mode_probe_has_run(state):
+        state.decision_trace.append(
+            "D. USER-mode byte detected; run guided USER-mode probe before bypass."
+        )
+        state.recommended_next_step = "run guided USER-mode probe"
     elif all_branches_exhausted(state):
         state.decision_trace.append("E. no remaining software/protocol path with current evidence.")
         state.recommended_next_step = "bypass C30D actuation using separate MCU/motor drivers"
@@ -739,6 +1113,13 @@ def _format_capture(summary: CaptureSummary) -> str:
         )
     if summary.status_byte_values:
         parts.append(f"  - byte 21 values: {_format_values(summary.status_byte_values)}")
+    if summary.stable_byte_values:
+        stable = ", ".join(
+            f"{position}=0x{value:02x}" for position, value in summary.stable_byte_values[:24]
+        )
+        parts.append(f"  - stable byte values: {stable}")
+    for position, distribution in summary.byte_value_distributions:
+        parts.append(f"  - byte {position} distribution: {_format_distribution(distribution)}")
     if summary.phases:
         parts.append(f"  - phases: {', '.join(summary.phases)}")
     if summary.apparent_write_effect:
@@ -746,6 +1127,30 @@ def _format_capture(summary: CaptureSummary) -> str:
     if summary.notes:
         parts.append(f"  - notes: {', '.join(summary.notes)}")
     return "\n".join(parts)
+
+
+def _format_distribution(distribution: tuple[tuple[int, int], ...]) -> str:
+    if not distribution:
+        return "none"
+    return ", ".join(f"0x{value:02x}:{count}" for value, count in distribution)
+
+
+def render_user_mode_probe_lines(state: DiagnosisState) -> list[str]:
+    lines = [
+        f"- byte 1 was 0x01 before probes: {state.user_mode_byte1_active_before_probes}",
+    ]
+    if not state.user_mode_command_probes:
+        lines.append("- command probes performed in USER mode: none")
+        return lines
+    lines.append("- command probes performed in USER mode:")
+    for probe in state.user_mode_command_probes:
+        output = f", feedback_output=`{probe.feedback_output}`" if probe.feedback_output else ""
+        notes = f", notes={','.join(probe.notes)}" if probe.notes else ""
+        lines.append(
+            f"  - {probe.name}: performed={probe.performed}, "
+            f"movement_detected={probe.movement_detected}{output}{notes}"
+        )
+    return lines
 
 
 def render_report(state: DiagnosisState) -> str:
@@ -808,6 +1213,12 @@ def render_report(state: DiagnosisState) -> str:
         "",
         "## Status/mode byte candidates",
         f"- Candidate byte 21 values: {_format_values(tuple(status_candidates))}",
+        f"- USER mode evidence: {state.user_mode_evidence.reason}",
+        f"- candidate_user_mode_byte: {'byte 1' if state.user_mode_evidence.detected else 'none'}",
+        f"- byte 1 before USER: {_format_values(state.user_mode_evidence.byte1_before)}",
+        f"- byte 1 after USER: {_format_values(state.user_mode_evidence.byte1_after)}",
+        f"- byte 8 before USER: {_format_values(state.user_mode_evidence.byte8_before)}",
+        f"- byte 8 after USER: {_format_values(state.user_mode_evidence.byte8_after)}",
         "",
         "## Motor switch OFF vs ON differences",
         *render_comparison_lines(switch_diffs),
@@ -818,8 +1229,15 @@ def render_report(state: DiagnosisState) -> str:
         "## Zero-frame effect",
         *render_comparison_lines(zero_diffs),
         "",
+        "## USER-mode probe results",
+        *render_user_mode_probe_lines(state),
+        "",
         "## All live command tests and results",
-        "- This runner did not execute motion probes.",
+        (
+            "- This runner did not execute motion probes."
+            if not state.user_mode_command_probes
+            else "- USER-mode probes are listed above."
+        ),
         "- Known prior live command results are listed in confirmed facts.",
         "",
         "## Decision trace",
@@ -878,6 +1296,15 @@ def main(
         state = run_offline_analysis(report_dir)
     elif args.guided_live:
         state = run_guided_live(
+            report_dir,
+            port=args.port,
+            baud=args.baud,
+            capture_duration_s=args.capture_duration,
+            input_fn=input_fn,
+            serial_factory=serial_factory,
+        )
+    elif args.guided_user_mode_probe:
+        state = run_guided_user_mode_probe(
             report_dir,
             port=args.port,
             baud=args.baud,
