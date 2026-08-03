@@ -1,0 +1,16 @@
+C30D V3.0 ground calibration
+
+straight nudge:
+  distance_cm = 15.24
+  drift_deg = 0
+
+nudge_left:
+  heading_change_deg = 59.73
+
+nudge_right:
+  heading_change_deg = 59.73
+
+notes:
+  v3.0 short/nudge commands are good for ~15 cm straight motion.
+  v3.0 turn nudges are coarse at ~60 deg per command.
+  Do not use v3.0 for accurate 30 deg turns unless smaller firmware primitive is added later.
