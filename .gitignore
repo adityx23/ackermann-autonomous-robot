@@ -31,6 +31,10 @@ data/
 *.pcd
 *.stl
 
+# Curated project media used by the repository showcase
+!media/
+!media/*.jpeg
+
 # Secrets/local config
 .env
 config/local.yaml
